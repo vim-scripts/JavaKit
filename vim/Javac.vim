@@ -14,6 +14,7 @@ let s:errorNum = -1
 " The total number of errors in each compilation.
 let s:totalErrors = 0
 
+let s:winSize = {}
 " Function: Invoke the javac from Sun on the current file.
 function! InvokeJavac(...)
 	let counter = 1
@@ -23,11 +24,14 @@ function! InvokeJavac(...)
 		let counter = counter + 1
 	endwhile
 
+	" echoerr commands
+
 	" Create the error file if necessary.
 	if (strlen(s:errorFile) == 0)
 		let s:errorFile = tempname()
 	endif
 
+	let s:winSize = GetWinSize()
 	" Save the current window so we can get back to it later.
 	let oldWindow = winnr()
 
@@ -38,16 +42,22 @@ function! InvokeJavac(...)
 		let oldWindow = winnr() + 1
 	endif
 
+	" close the previous error file
+	" if (s:buffNum != -1)
+		" exe 'bwipe ' . s:buffNum
+	" endif
+
 	" Open the errorFile so we can dump the output of javac into it later.
 	exe "silent edit! " . s:errorFile
 
 	" Keep the buffer number for the error file
 	let s:buffNum = bufnr("%") 
+
 	" Get a clean slate to write on.
 	%d
 
 	" Turn on same special buffer options for the error file.
-  setlocal noswapfile
+	setlocal noswapfile
 	setlocal nobuflisted
 	setlocal autoread
 	setlocal buftype=nowrite
@@ -68,9 +78,16 @@ fun! s:DisplayErrors(oldWindow)
 	if line(".") == line("$") && getline(".") =~ "^\s*$"
 		exe 'bwipe ' . s:buffNum
 		let s:totalErrors = 0
-		call GoToWindow(a:oldWindow-1)
+		" call GoToWindow(a:oldWindow-1)
+		call RestoreWinSize(s:winSize, 0)
+		" echoerr "hi"
 
+	" javac displays some warning or error
+	elseif getline(2) =~ '\.$'
+		call SetViewport(2, line("$"))
+		call GoToWindow(a:oldWindow)
 	else
+
 		" Comstom highlight for the errors.
 		call s:HighlightJavacErrors()
 

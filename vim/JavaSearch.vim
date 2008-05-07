@@ -1,13 +1,19 @@
+if exists("JavaSearchSourced")
+	finish
+endif 
+let JavaSearchSourced = "true"
+
 exe "so " . g:VIMMACROSPATH . "Javadoc.vim"
 exe "so " . g:VIMMACROSPATH . "Functions.vim"
+exe "so " . g:VIMMACROSPATH . "JavaUtil.vim"
 
-nmap <silent> gm :call SearchMethodHead(1)<cr>
-nmap <silent> gc :call SearchClassHead(1)<cr>
-nmap <silent> gd :call VariableDecl(1, 0, 1)<cr>
-nmap <silent> gi :call VariableDecl(1, 1, 1)<cr>
+nmap <silent> gm :call <SID>SearchMethodHead(1)<cr>
+nmap <silent> gc :call <SID>SearchClassHead(1)<cr>
+nmap <silent> gd :call <SID>VariableDecl(1, 0, 1)<cr>
+nmap <silent> gi :call <SID>VariableDecl(1, 1, 1)<cr>
 
 " Set s:debug to 1 to debug all the main features,
-" 2 to debug completion, or 3 to debug VariableDecl
+" 2 to debug completion, or 3 to debug s:VariableDecl
 let s:debug = 0
 let s:DEBUG_ALL = 1
 let s:COMPLETION = 2
@@ -19,34 +25,32 @@ let s:VARIABLE_DECL = 3
 let s:EXCLUDE = '\(\(^\s*\*\|/[/*]\|"\).*\)\@<!'
 
 " Pattern for matching a method.
-let s:METHOD_BEAR = '\(\<\(new\>\|else\>\|return\>\)\@!\&\h\w*\s\+\)' . 
-							\'\@<=\h\w*\_s\{-}(\_[^)]*)\_s\{-}[{[:alpha:]]'
+let s:METHOD_BEAR = '\(\<\(new\>\|else\>\|return\>\)\@!\&\h\i*\s\+\)' . 
+					\ '\@<=\h\i*\_s\{-}(\_[^)]*)\_s\{-}[{[:alpha:]]'
 let s:METHOD = s:EXCLUDE . s:METHOD_BEAR
 
 " Pattern for matching a constructor.
 let s:CONSTRUCTOR = '\(^\s*\(public\|protected\|private\)\=\s*\)' . 
-			\ '\@<=\C\u\h\w*\_s*(\_[^)]*)\_s*[{[:alpha:]]'
+					\ '\@<=\C\u\h\i*\_s*(\_[^)]*)\_s*[{[:alpha:]]'
 
 " Pattern for matching a normal class
-let s:NORMAL_CLASS_BEAR = '\(\<\Cclass\>\_s\+\)\@<=\C\u\h\w*\_s\+\({\_s*}\)\@!'
+let s:NORMAL_CLASS_BEAR = '\(\<\Cclass\>\_s\+\)\@<=\C\u\h\i*\_s\+\({\_s*}\)\@!'
 let s:NORMAL_CLASS = s:EXCLUDE . s:NORMAL_CLASS_BEAR
 
 " Pattern for matched an anonymous class
-let s:ANONYMOUS_CLASS = s:EXCLUDE . 
-											 \'\(\(\s*\|(\_[^)]*\)\C\<new\>\s\+\)\@<=\C\u\h\w*(\_[^)]*)\_s*{'
+let s:ANONYMOUS_CLASS = s:EXCLUDE . '\(\(\s*\|(\_[^)]*\)\C\<new\>\s\+\)\@<=\C\u\h\i*(\_[^)]*)\_s*{'
   
 " ~~~~~~~~~~~~~~~~~~~~ End Patterns ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 " Function: Go to the declaration of current method or constructor.
 "
-" Return: The line number from where the method head was found, or -1 if the
-" 				matched line is on the current line; return 0 if the current line is
-" 				not inside a method block, or when the match can't be found.
+" Return: 	The line number from where the method head was found, or -1 if the
+" 			matched line is on the current line; return 0 if the current line is
+" 			not inside a method block, or when the match can't be found.
 "
-" Bug: If the cursor is a class's field that without a scope modifier, then the
-" 		 search will go to a random method.
-"
-fun! SearchMethodHead(restore)
+" Bug: 		If the cursor is a class's field that without a scope modifier, then the
+" 		 	search will go to a random method.
+fun! s:SearchMethodHead(restore)
 	" This line is for a class.
 	let lineContent = getline(".")
 	if (lineContent =~ s:NORMAL_CLASS)
@@ -151,10 +155,9 @@ endfun
 
 " Function: Go to the declaration of current class.
 "
-" Bug: If the cursor is a class's field that without a scope modifier, then the
-" 		 search will go to a random class head.
-"
-fun! SearchClassHead(restore)
+" Bug: 		If the cursor is a class's field that without a scope modifier, then the
+" 		 	search will go to a random class head.
+fun! s:SearchClassHead(restore)
 
 	if (a:restore == 1)
 		exe "normal!m`"
@@ -214,7 +217,7 @@ fun! SearchClassHead(restore)
 	exe line1
 
 	" Have to go to the method head for the next line to work correctly.
-	let methodLine = SearchMethodHead(0)
+	let methodLine = s:SearchMethodHead(0)
 	let before = cindent('.')
 
 	" This line will let us go to the '{' for the class declaration.
@@ -261,32 +264,29 @@ fun! s:SearchAnonymous(restore)
 endfun
 
 " Function: Find the declaration for the variable that's under the cursor
-" 					currently.
+" 			currently.
 "
-" Paratmeter: smartCursor If this flag is set to 1 and the search is not found
-" 												then the cursor will return to where the search
-" 												started. If the search is found then the cursor will
-" 												be on the matched pattern.  Set it 0 if we don't care
-" 												about the cusor position.
+" Param: 	smartCursor If this flag is set to 1 and the search is not found
+" 			then the cursor will return to where the search started. If the
+" 			search is found then the cursor will be on the matched pattern.  Set
+" 			it 0 if we don't care about the cusor position.
 "
-" Paratmeter: init Set it to 1 to find the initialisation line instead of the
-" 								 declaration line.  For exmaple when we don't want to find the
-" 								 line "Object obj;" which declares "obj", but we want to find
-" 								 in the line "obj = new  HashTable()".  If we can't find the
-" 								 initialisation line, then a second attempt will be made to
-" 								 find the declaration.
+" Param: 	init Set it to 1 to find the initialisation line instead of the
+" 		   	declaration line.  For exmaple when we don't want to find the line
+" 		   	"Object obj;" which declares "obj", but we want to find in the line
+" 		   	"obj = new HashTable()".  If we can't find the initialisation line,
+" 		   	then a second attempt will be made to find the declaration.
 "
-" Paratmeter: premitive Set this value to 1 to allow matching premitive data
-" 											type declarations; set it to 0 to disallow such match.
+" Param: 	premitive Set this value to 1 to allow matching premitive data
+" 			type declarations; set it to 0 to disallow such match.
 "
-" Parameter: ... This additional paratmeter is for search a word with the name,
-" 							 so we're not checking '<cword>', but the cursor still needs to
-" 							 be at the line where a:1 locates.
+" Param: 	... This additional paratmeter is for search a word with the name,
+" 			so we're not checking '<cword>', but the cursor still needs to be at
+" 			the line where a:1 locates.
 "
-" Return: The line number for where the declaration or initialisation is found,
-" 				otherwise 0 is returned.
-"
-fun! VariableDecl(smartCursor, init, premitive, ...)
+" Return: 	The line number for where the declaration or initialisation is found,
+" 			otherwise 0 is returned.
+fun! s:VariableDecl(smartCursor, init, premitive, ...)
 	" Store current cusor position so we can get back to it later.
 	if (a:smartCursor == 1)
 		exe "normal!m'"
@@ -332,10 +332,10 @@ fun! VariableDecl(smartCursor, init, premitive, ...)
 	" The cursor is on an instance variable which has the name as 'this.xxxx'
 	if (match(getline("."), 'this\.\<\C' . name . '\>') < col(".")
 				\ && col(".") < matchend(getline("."), 'this\.\<\C' . name . '\>'))
-		call SearchMethodHead(0)
+		call s:SearchMethodHead(0)
 		let result = s:InstanceVariableDecl(name, a:init)
 	else
-		let method = SearchMethodHead(0)
+		let method = s:SearchMethodHead(0)
 		let methodIndent = cindent(method)
 
 		" 1. The cursor is on a method head.
@@ -387,13 +387,14 @@ fun! VariableDecl(smartCursor, init, premitive, ...)
 endfun
 
 " Function: Try to find the declaration for name inside a method block.
-" Return: non-zero value for the line number that has the initialisation.
+"
+" Return: 	Non-zero value for the line number that has the initialisation.
 fun! s:MethodVariableDecl(lineNum, name, init)
 	let anonymousIndent = cindent(s:SearchAnonymous(0))
 	if (cindent(".") < anonymousIndent || anonymousIndent <= 0)
 		let top = line(".")
 	else
-		let top = SearchMethodHead(0)
+		let top = s:SearchMethodHead(0)
 	endif
 
 	let declaration = 0
@@ -403,17 +404,17 @@ fun! s:MethodVariableDecl(lineNum, name, init)
 		let line = getline(lineNum)
 
 		let pattern = s:GetInit(a:name)
-		if (line =~# pattern && IsInsideComment(match(line, pattern), lineNum) == -1)
-				let initialisation = lineNum
-				if (a:init == 1)
-					break " Found it.
-				endif
+		if (line =~# pattern && IsStatement(match(line, pattern), lineNum))
+			let initialisation = lineNum
+			if (a:init == 1)
+				break " Found it.
+			endif
 		endif
 
 		let pattern = s:GetDecl(a:name)
-		if (line =~# pattern && IsInsideComment(match(line, pattern), lineNum) == -1)
-				let declaration = lineNum
-				break " Found it.
+		if (line =~# pattern && IsStatement(match(line, pattern), lineNum))
+			let declaration = lineNum
+			break " Found it.
 		endif
 
 		let lineNum = lineNum - 1
@@ -428,8 +429,10 @@ fun! s:MethodVariableDecl(lineNum, name, init)
 endfun
 
 " Function: Find the instance variable with name.
-" Precondition: The cursor has to be on the current method head.
-" Return: non-zero value for the line number that has the initialisation.
+"
+" Precon: 	The cursor has to be on the current method head.
+"
+" Return: 	Non-zero value for the line number that has the initialisation.
 fun! s:InstanceVariableDecl(name, init)
 	let beforeSearch = line(".")
 
@@ -490,8 +493,7 @@ fun! s:InstanceVariableDecl(name, init)
 
 endfun
 
-" Function: This is the loop that find a instance variable. It's a hand off from
-" InstanceVariableDecl.
+" Function: This is the loop that find a instance variable.  It's a hand off from InstanceVariableDecl.
 fun! s:Loop(start, end, pattern, instanceIndent)
 	while (1)
 		let lineNum = search(a:pattern, 'W')
@@ -506,8 +508,8 @@ fun! s:Loop(start, end, pattern, instanceIndent)
 
 		" Check if pattern is at the same indent level and also make sure it's not a
 		" method parameter.
-		if (cindent(lineNum) == a:instanceIndent && SearchMethodHead(0) != -1)
-			if (IsInsideComment(match(getline(lineNum), a:pattern), lineNum) == -1)
+		if (cindent(lineNum) == a:instanceIndent && s:SearchMethodHead(0) != -1)
+			if (IsStatement(match(getline(lineNum), a:pattern), lineNum))
 				return lineNum
 
 			else
@@ -529,26 +531,27 @@ fun! s:Loop(start, end, pattern, instanceIndent)
 
 endfun
 
-" Function: Get the pattern that matches an initialisation for a variable.
+" Function: Get the pattern that matches the initialisation for a variable.
 fun! s:GetInit(name)
-	return s:EXCLUDE . '\<' . a:name . '\>\s*=\s\+new\s\+' . s:UpperCase . '\h\w*\s*[[(]'
+	return s:EXCLUDE . '\<' . a:name . '\>\s*=\s\+new\s\+'
+				\ . s:UpperCase . '\h\i*\s*\(<\s*\i\+\s*\(,.*\)*>\)\=\s*[[(]'
 endfun
 
-" Function: Get the pattern that matches a declaration for a variable.
+" Function: Get the pattern that matches the declaration for a variable.
 fun! s:GetDecl(name)
-	" Match 'String[] str', 'String str[]', 'String str', etc.
+	" Match 'String[] str', 'String str[]', 'String str', 'List<String> strings' etc.
 	return s:EXCLUDE . '\<\(return\>\|assert\>\)\@!\&\(\s*\[\s*\]\)\=' . s:UpperCase
-				\ . '\h\w*\(\s*\[\s*\]\)\=\s\+\C\<' . a:name .'\>'
+				\ . '\h\i*\(\s*\[\s*\]\)\=\(<\s*\i\+\s*\(,.*\)*>\)\=\s\+\C\<' . a:name .'\>'
 endfun
 
 " Function: Search a pattorn backward, if the pattern is in a C or C++
-" 					comments then it'll be skipped.
+" 			comments then it'll be skipped.
 "
-" Paratmeter: pattern The pattern to be searched for.
+" Parame: 	pattern The pattern to be searched for.
 "
-" Return: The line number where the pattern is matched, as a side effect
-" 				the cursor will be placed on the matched pattern. 0 for not matching
-" 				the pattern, and the cursor will remain at the same place.
+" Return: 	The line number where the pattern is matched, as a side effect
+" 			the cursor will be placed on the matched pattern. 0 for not matching
+" 			the pattern, and the cursor will remain at the same place.
 fun! s:SearchBackward(pattern)
 	let result = search(a:pattern, 'bW')
 
@@ -556,20 +559,20 @@ fun! s:SearchBackward(pattern)
 		return result
 	endif
 
-	if (IsInsideComment(col("."), line(".")) == 1)
+	if (IsStatement(col("."), line(".")) == 0)
 		return s:SearchBackward(a:pattern)
 	endif
 
 	return result
 endfun
 
-"~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-"~	  	 	 	   			 Start of Completion                 	       ~
-"~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+"~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+"~	  	     	 	   			 Start of Completion                                ~
+"~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 " Set it to 1 to use vim built-in normal command to find the declaration for the
 " current identifier; or set it 0 to use our own function to do the same chore.
-let s:UseBuiltIn = 1
+let s:UseBuiltIn = 0
 
 " Move the previous completion to the front, so the previous completion will
 " be the first one to be looked up when the next search begins.
@@ -665,17 +668,22 @@ let s:total = 0
 let s:start = 0
 " The current completion.
 let s:value = ""
-" We cache the members for all the classes we've looked up so far.
-let s:cache = ""
-" Need to this get rid of the previous completion.
+" Cache the members for all the classes been looked up so far, use fqn for the key.
+let s:cache = {}
+" Need this to get rid of the previous completion.
 let s:oldValue = ""
 " The col(".") value for the cursor position before inserting completion.
 let s:cursor = 0 
+" The fully qualified name for class
+let s:fqn = ""
+" This is an fqn and javadoc/javasource path map.
+let s:path = {}
 
 " Function: Get the completion for the current variable.
-" Parameter: direction Specify for how to traverse the completion 
-" 										 1 for forward, 0 for backward.
-" Return: 1 for success, 0 for failure.
+"
+" Param: 	direction Specify for how to traverse the completion 1 for forward, 0 for backward.
+"
+" Return: 	1 for success, 0 for failure.
 fun! InvokeCompletion(direction)
 	let position = line2byte(line(".")) + col(".") - 1
 
@@ -691,15 +699,15 @@ fun! InvokeCompletion(direction)
 	if (s:start != position - strlen(s:value) || existing !=# word )
 
 		" Move the previous completion (s:value) for s:class to the front.
-		if (Hashtable_exist(s:class, s:cache) && strlen(s:value) && s:MovePreviousFront)
-			let memebers = Hashtable_get(s:class, s:cache)
+		if (has_key(s:cache, s:fqn) && strlen(s:value) && s:MovePreviousFront)
+			let members = s:cache[s:fqn]
 			" The previous completion
 			let previous = s:prefix . s:value
 			" If the previous completion is not in the front of s:class.
-			if (memebers !~# '^'.previous)
-				let members = substitute(memebers, previous.'\(;\|$\)\@=', '', '')
+			if (members !~# '^'.previous)
+				let members = substitute(members, previous.'\(;\|$\)\@=', '', '')
 				let s:members = previous . members
-				let s:cache = Hashtable_put(s:class, s:members, s:cache)
+				let s:cache[s:fqn] = s:members
 			endif
 		endif
 
@@ -713,7 +721,7 @@ fun! InvokeCompletion(direction)
 		" Because we're in the insert mode (<c-r>=) so the cursor needs to be moved
 		" one step backward so that it can always point to a [:alnum:].
 		normal! h
-		let temp = s:SetupCompletion()
+		let temp = s:InitialiseVars()
 		normal! l
 
 		if (temp == 0)
@@ -742,158 +750,512 @@ fun! InvokeCompletion(direction)
 	" can be zero as well in which case we have an empty string. If the match is
 	" a proper one then GetItem(s:members, s:prefix, number) will return a string
 	" that's not preceded by the s:prefix, because we're using s:prefix as the
-	" delimeter for extracting the value.
+	" delimiter for extracting the value.
 	let s:value = substitute(GetItem(s:members, s:prefix, s:counter%s:total), '\([^;]*\);.*', '\1', '')
 
 	return 1
 endfun
 
-" Function: Setup s:class, s:members, s:prefix, and s:total.
-" Return: 1 for success, 0 for error.
-fun! s:SetupCompletion()
+" Function: Initialise the script vars for the completion operation.
+"
+" Return:	1 for success, otherwise 0.
+fun! s:InitialiseVars()
+	let delimiter = '\.'
+	let line = getline(line('.'))
 
-	" Test the current cursor is behind a '.'
-	let uptoCursor = strpart(getline("."), 0, col("."))
-	let bigWord = GetLastItem(uptoCursor, '\s')
+	let pattern = '\(switch\s*(\|while\s*(\|if\s*(\|return\|for\s*(\)\=.\{-}\(\i[^;]*\%' . (col('.') + 1). 'c\).*'
+	let uptoCursor = substitute(line, pattern, '\2', '')
 
-	let delimter = '\.'
-	let counts = ItemCounts(bigWord, delimter)
-	if (counts < 2)
-		" We expect at least one '.'
-		if (s:debug == s:COMPLETION || s:debug == s:DEBUG_ALL)
-			echoerr "counts " . counts
-		endif
+	let chunk = s:BuildExpression(uptoCursor)
+	let tokens = split(chunk, delimiter)
+	let s:prefix = ';' . GetLastItem(chunk, delimiter)
+
+	" Note the length can be greater than len(tokens), 
+	" Even an input like 'xx.' for ItemCounts is returned 2.
+	" For details see the comments for ItemCounts.
+	let length = ItemCounts(chunk, delimiter)
+	" must have at least a delimiter
+	if (length < 2)
 		return 0
 	endif
 
-	let s:prefix = ';' . GetLastItem(bigWord, delimter)
-	let name = GetItem(bigWord, delimter, counts - 2)
-	let name = GetLastItem(name, '\W')
-
-	if (name == "this")
-		" Don't want to lookup 'this'.
-		if (s:debug == s:COMPLETION || s:debug == s:DEBUG_ALL)
-			echoerr "no completion for this"
-		endif
+	" TODO support completion for 'this' keyword
+	if (tokens[0] == 'this')
 		return 0
 	endif
 
 	" The declaration is on the current line.
-	if (uptoCursor =~# '\C\u\w*\s\+'.name.'$')
+	if (uptoCursor =~# '\C\u\w*\s\+'.tokens[0].'$')
 		let lineNum = line(".")
 	else
-
-		if (s:UseBuiltIn == 0)
-			let lineNum = VariableDecl(0, 0, 0, name)
-		else
-			" The gd command works good enough, but it doesn't always give
-			" correct result.
-			exe "normal?\\w\\.\<cr>"
-			let saveIgnoreCase = &ignorecase
-			let saveComments = &comments
-			set noignorecase
-			set comments=://,sr:/*,mb:*,ex:*/
-			exe "normal!gd"
-			let &ignorecase = saveIgnoreCase
-			let &comments = saveComments
-			let lineNum = line(".")
-		endif
+		let lineNum = s:VariableDecl(0, 0, 0, tokens[0])
 	endif
 
-	if (s:UseBuiltIn == 0)
-		" Name is a class name already.
-		if (name =~# '^\C\u')
-			let class = name
-		else
-			let class = ExtractClassName(lineNum, name)
-			if (class ==# "")
-				if (s:debug == s:COMPLETION || s:debug == s:DEBUG_ALL)
-					echoerr "Class Name: " s:class . " Word: " . name . " LineNO: " . lineNum
-				endif
-				return 0
-			endif
-		endif
-
-	else
-		if (getline(".") !~# '\C\u\w*\s\+'.name)
-			" If the lineNum is zero then we'll expand 'name' to be a class name rather
-			" than a variable name which should have the upper case letter in its first
-			" letter.
-			if(name !~# '^\C\u')
-				if (s:debug == s:COMPLETION || s:debug == s:DEBUG_ALL)
-					echoerr bigWord
-					echoerr s:class . " " . name . " " . lineNum
-				endif
-				return 0
-			endif
-		endif
-
-	endif
-
+	let class = ""
 	" Name is a class name already.
-	if (name =~# '^\C\u')
-		let class = name
+	if (tokens[0] =~# '^\C\u')
+		let class = tokens[0]
 	else
-		let class = ExtractClassName(lineNum, name)
-		if (class ==# "")
-			if (s:debug == s:COMPLETION || s:debug == s:DEBUG_ALL)
-				echoerr "s:class in SetupCompletion"
-			endif
-			return 0
-		endif
-	endif
-	
-	let s:class = class
-	" Use the cache values if the class's javadoc has already been looked up.
-	if (Hashtable_exist(class, s:cache))
-		if (Hashtable_get(class, s:cache) ==# 'No Javadoc')
-			return 0
-		else
-			let s:members = Hashtable_get(class, s:cache)
-			let s:total = ItemCounts(s:members, s:prefix)
-			return 1
-		endif
+		let class = ExtractClassName(lineNum, tokens[0])
 	endif
 
-	let javadoc = GetJavadoc(s:class)
-	if (filereadable(javadoc))
-		silent let s:members =  s:ConcateMembers(javadoc, s:class)
-		" The javadoc exists so cache its members.
-		let s:cache = Hashtable_put(class, s:members, s:cache)
-		let s:total = ItemCounts(s:members, s:prefix)
-		return 1
-
-	else
-		if (s:debug == s:COMPLETION || s:debug == s:DEBUG_ALL)
-			echoerr "javadoc in SetupCompletion"
-		endif
-
-		" The javadoc doesn't exist, so we put a sentiment value
-		" to indicate that it hasn't got a javadoc.
-		let s:cache = Hashtable_put(class, 'No Javadoc', s:cache)
+	" can't find the type
+	if (class == "")
 		return 0
 	endif
 
+	let generics = ExtractGenerics(lineNum, tokens[0])
+
+	" walk through the expression tokens
+	return s:WalkExpression(class, tokens, length, generics)
+
 endfun
 
-" Function: ConcateMembers concatenate all the members for a class into a ';'
-" separated string.  This function is javadoc dependent.
-" Parameter: javadoc This is the full path to the file that contains the javadoc page.
-" Parameter: class The name for the class.
-fun! s:ConcateMembers(javadoc, class)
+" Function: Build the expression statement for input.
+"
+" Param:	input A serie of sequential strings taken from a java source code.
+"
+" Return:	A '.' separated expression with the method parameters stripped.
+"			e.g. 'retVal.subString.equalsIgnoreCase'
+fun! s:BuildExpression(input)
+	let i = 0
+	let stack = []
+	let token = ""
+	let retVal = ""
+	let canAdd = 1
+	" use empty value to avoid index not found error
+	let values = ["", "", "", "", ""]
+
+	while(i < strlen(a:input))
+		if (a:input[i] == '(')
+			" push the stack
+			call insert(stack, token, len(stack))
+			let token = ""
+
+		elseif (a:input[i] == ')')
+			if (len(stack) - 1 >= 0)
+				let index = len(stack)
+
+				" pop the stack
+				let item = remove(stack, len(stack) - 1)
+				let values[index] = values[index] . item
+			endif
+
+			let token = ""
+
+		else
+			let token = token . a:input[i]
+		endif
+
+		let i = i + 1
+	endwhile
+
+	let index = len(stack) + 1
+	let values[index] = values[index] . token
+
+	" remove the string before ','
+	return substitute(values[index], '.*,\s*', '', '')
+endfun
+
+
+" Function: Walk though the tokens in an expression. If the function is
+" 			successful, then the values for s:class, s:fqn, s:members,
+" 			s:prefix, and s:total will be reset to new ones.
+"
+" Return:	1 for success, otherwise 0. 
+fun! s:WalkExpression(class, tokens, length, generics)
+	let class = a:class
+	let success = 0
+	let members = ""
+	let total = 0
+	let fqn = ""
+	let size = len(a:generics)
+
+	let i = 0
+	" the last item in token is used for s:prefix
+	let length = a:length - 1
+	while (i < length)
+		let i = i + 1
+		let success = 0
+
+		if (strlen(members) > 0)
+			let memberName = a:tokens[i - 1]
+			let file = s:path[fqn]
+
+			if (file =~# '\.html$')
+				let class = s:GetMemberTypeFromJavadoc(memberName, file)
+			elseif (file =~# '\.java$')
+				let class = s:GetMemberTypeFromJavaSource(memberName, file, class)
+			else
+				echoerr "Wrong return value: " . javadoc . " from GetJavadoc."
+				break
+			endif
+		endif
+
+		if (class == "")
+			" check if the current type is of generic type
+			if ((size > i - 2) && i >= 2)
+				let class = a:generics[i - 2]
+			else
+				break
+			endif
+		endif
+
+		let docInfo = GetJavadoc(class, 1, expand("%:t:r"), expand("%:p"))
+		if (len(docInfo) == 0)
+			break
+		endif
+
+		let fqn = docInfo['fqn']
+		" Use the cache values if the class's javadoc has already been looked up.
+		if (has_key(s:cache, fqn))
+			let members = s:cache[fqn]
+			let total = ItemCounts(members, s:prefix)
+			let success = 1
+			continue
+		endif
+
+		let javadoc = docInfo['path']
+		if (filereadable(javadoc))
+			if (javadoc =~# '\.html$')
+				silent let members = s:Join(s:ConcateMembersFromJavadoc(javadoc, class))
+			elseif (javadoc =~# '\.java$')
+				silent let members = s:Join(s:ConcateMembersFromSource(javadoc, class))
+			else
+				echoerr "Wrong return value: " . javadoc . " from GetJavadoc."
+				break
+			endif
+
+			let s:cache[fqn] = members
+			let s:path[fqn] = javadoc
+			let success = 1
+			let total = ItemCounts(members, s:prefix)
+			continue
+		else
+			break
+		endif
+	endwhile
+
+	" reset some script-wide vars
+	if (success)
+		let s:class = class
+		let s:members = members
+		let s:total = total
+		let s:fqn = fqn
+
+		return 1
+	else
+		return 0
+	endif
+endfun
+
+" Function: Get the type for name from a javadoc file.
+"
+" Param:	name The name of the public member.
+"
+" Param:	file The file javadoc file.
+"
+" Return:	The data type for name, or an empty string if not found.
+fun! s:GetMemberTypeFromJavadoc(name, file)
+	silent call EditTempFile()
+	exe "silent r " . a:file
+	" Don't want the alternate file.
+	bw #
+
+	let lineNum = search('^<TD><CODE><B><A.*#'.a:name, 'n')
+	if (lineNum <= 0)
+		let lineNum = search('#'.a:name, 'n')
+	endif
+
+	let type = ""
+	if (lineNum > 0)
+		let line = getline(lineNum - 1)
+
+		" Get the fully qualified class name from the same javadoc.
+		if (line =~# 'title="\(class\|interface\)\s\+in')
+			let type = substitute(line, '.*title="\(class\|interface\)\s\+in\s\+\([^<]*\)<.*', '\2', '')
+			let type = substitute(type, '">', '.', '')
+
+		" This is of a generic value.
+		elseif (line =~# 'title="type parameter in ')
+			" do nothing
+
+		" The type is actually a fully qualified name.
+		elseif (line =~# '<CODE>&nbsp;\([^<]*\)<.*')
+			let type = substitute(line, '<CODE>&nbsp;\([^<]*\)<.*', '\1', '')
+
+		" This is an inherited member, so open its super class.
+		else
+			let line = getline(lineNum - 3)
+			let file = substitute(line, '.*HREF="\([^"]*\)".*', '\1', '')
+			let file = substitute(a:file, '\w\+\.html', '', '') . file
+
+			if (filereadable(file))
+				bw %
+				return s:GetMemberTypeFromJavadoc(a:name, file)
+			endif
+		endif
+	endif
+
+	" no longer needed the temp file
+	bw %
+
+	return type
+endfun
+
+" Function: Get the data type for name.
+"
+" Param:	name The name of the public member.
+"
+" Param:	file The file, maybe javadoc/javasource, that's containing the
+" 			definition or the javadoc for name.
+"
+" Param:	class The class name for the file.
+"
+" Return:	The data type for name, or an empty string if not found.
+fun! s:GetMemberTypeFromJavaSource(name, file, class)
+	silent call EditTempFile()
+	exe "silent r " . a:file
+	" Don't want the alternate file.
+	bw #
+
+	let lineNum = search('\s*public.*'.a:name)
+	let type = ""
+	if (lineNum <= 0)
+		let inheritance = ExtractInheritance()
+		if (inheritance == "")
+			let type= ""
+		else
+			let docInfo = GetJavadoc(inheritance, 1, a:class, a:file)
+			if (len(docInfo) == 0)
+				let type = ""
+			endif
+
+			let path = docInfo['path']
+			if (filereadable(path))
+				bw %
+				if (path =~# '\.html$')
+					return s:GetMemberTypeFromJavadoc(a:name, path)
+				elseif (path =~# '\.java$')
+					return s:GetMemberTypeFromJavaSource(a:name, path, inheritance)
+				endif
+			endif
+		endif
+	endif
+
+	let line = getline(line('.'))
+	let pattern = '.\{-}\(\i\+\)\s\+\<'.a:name.'\>.*'
+	if (match(line, pattern) != -1)
+		let type = substitute(line, pattern, '\1', '')
+	endif
+
+	" don't want the temp file
+	bw %
+	return type
+endfun
+
+" Function: concatenate the members from java source.
+fun! s:ConcateMembersFromSource(sourceFile, currentClass)
+	silent call EditTempFile()
+	exe "silent r " . a:sourceFile
+	" Don't want the alternate file.
+	bw #
+
+	let end = line('$')
+	let lineNum = 1
+	let members = []
+
+	let static = '^\tpublic.\{-}\(\i\+\)\s*=.*$'
+	let method = '^\tpublic\(\s\+\i\+\)\{-1,}\s\+\(\i\+\)\s*(.*$'
+	let enum   = '^\tpublic\s\+enum\s\+\(\i\+\)\s*.*$'
+	while (lineNum <= end)
+		let line = getline(lineNum)
+		if (line =~# static)
+			call add(members, substitute(line, static, '\1', ''))
+		elseif (line =~# method)
+			call add(members, substitute(line, method, '\2', ''))
+		elseif (line =~# enum)
+			call add(members, substitute(line, enum, '\1', ''))
+		endif
+		let lineNum = lineNum + 1
+	endwhile
+
+	let inheritance = ExtractInheritance()
+
+	if (strlen(inheritance) > 0)
+		call extend(members, s:ExtractMembers(inheritance, a:currentClass, a:sourceFile))
+	else
+		" All the java.lang.Object public methods.
+		call add(members, "clone")
+		call add(members, "equals")
+		call add(members, "finalize")
+		call add(members, "getClass")
+		call add(members, "hashCode")
+		call add(members, "notify")
+		call add(members, "notifyAll")
+		call add(members, "toString")
+		call add(members, "wait")
+	endif
+
+	" Sometimes maybe the current buffer is editing a java source code file.
+	" '_' is the temp file's name.
+	if (expand("%:t:r") == "_")
+		" no longer needed the temp file
+		bw %
+	endif
+
+	return members
+endfun
+
+" Function: Extract the public members for class.
+"
+" Param:	class The class of which we're looking for its members.
+"
+" Param:	currentClass The class name for the opened java source code.
+"
+" Param:	path The full path to the opened java source code.
+"
+" Return:	All the public members for class.
+fun! s:ExtractMembers(class, currentClass, path)
+
+	let docInfo = GetJavadoc(a:class, 1, a:currentClass, a:path)
+	if (len(docInfo) == 0)
+		return []
+	endif
+
+	let fqn = docInfo['fqn']
+	" Use the cache values if the class's javadoc has already been looked up.
+	if (has_key(s:cache, fqn))
+		return split(s:cache[fqn], ';')
+	endif
+
+	let javadoc = docInfo['path']
+	if (filereadable(javadoc))
+		if (javadoc =~# '\.html$')
+			silent let members = s:ConcateMembersFromJavadoc(javadoc, a:class)
+			let s:cache[fqn] = s:Join(members)
+			return members
+		elseif (javadoc =~# '\.java$')
+			silent let members = s:ConcateMembersFromSource(javadoc, a:class)
+			let s:cache[fqn] = s:Join(members)
+			return members
+		else
+			echoerr "Wrong return value: " . javadoc . " from GetJavadoc."
+			return []
+		endif
+	endif
+
+	return []
+
+endfun
+
+" Function: Join the members into a ';' separated string.  The user can
+" 			manipulate this function to get customised completion behaviour,
+" 			e.g. filter out unwanted members.
+"
+" Return:	A ';' separated string representation of members and duplicates are removed.
+fun! s:Join(members)
+	call sort(a:members)
+	let previous = ""
+	let retVal = ""
+	" remove duplicates
+	for item in a:members
+		if (item != previous)
+			let retVal = retVal . ';' . item
+		endif
+		let previous = item
+	endfor
+
+	return retVal
+endfun
+
+" Function: Concatenate all the members for a class into a ';'
+" 			separated string.  This function is javadoc dependent.
+"
+" Param: 	javadoc This is the full path to the file that contains the javadoc page.
+"
+" Param: 	class The name for the class.
+"
+" Precon:	The current buffer is displaying the java source code.
+"
+" Return:	All the public fields and methods for class.
+fun! s:ConcateMembersFromJavadoc(javadoc, class)
 	silent call EditTempFile()
 	exe "r " . a:javadoc
 	" Don't want the alternate file.
 	bw #
 
+	let members = []
+	" java 4 and java (5|6) have different javadoc output
+	if (search('(Java .* [56])', 'n'))
+		let members = s:UserJavadoc15()
+	else
+		let members = s:UseJavadoc14(a:class)
+	endif
+
+	" Get rid of this temp file.
+	bw %
+	return members
+endfun
+
+" Function:	Parse the public members from javadoc 15
+"
+" Precon:	The current buffer is displaying the javadoc.
+"
+" Return:	All the public fields and methods for a class.
+fun! s:UserJavadoc15()
+
+	let members = []
+	while (1 != 0)
+		let [lnum, col] = searchpos('<TH ALIGN="left"><B>Methods ', 'W')
+		if (lnum == 0)
+			break
+		endif
+		call extend(members, split(substitute(getline(lnum + 3), '<.\{-}>', '', 'g'), ', '))
+	endwhile
+
+	if (search('<META NAME="keywords" CONTENT="', 'n'))
+		v/<META NAME="keywords" CONTENT="/d
+		%s/<META NAME="keywords" CONTENT="//
+
+		" this may fail for exceptions
+		%s/()">//e
+		g/ /d
+		g/^[^"]/call add(members, expand("<cword>"))
+	endif
+
+	return members
+
+endfun
+
+" Function: Parse the public members from javadoc 14
+"
+" Precon:	The current buffer is displaying the javadoc.
+"
+" Param:	class The class name.
+"
+" Return:	All the public fields and methods for class.
+fun! s:UseJavadoc14(class)
+
+	let members = []
+	while (1 != 0)
+		let [lnum, col] = searchpos('<TD><B>Methods inherited from ', 'W')
+		if (lnum == 0)
+			break
+		endif
+		let methods = substitute(getline(lnum + 3), '<.\{-}>', '', 'g')
+		call extend(members, split(substitute(methods, '$', '', ''), ', '))
+	endwhile
+
 	" Norrow the search
 	/<!-- =========== FIELD SUMMARY =========== -->/+1, /<!-- ============ FIELD DETAIL =========== -->/m0
 	" Delete all the following lines.
 	normal! dG
+
 	" Don't want proctected members.  However, we can't deal with the protected
 	" members inherited from the super classes.
 	silent g/<CODE>protected &nbsp;/+1d
-	" Norrow down to memebers
+	" Norrow down to members
 	v/.*html#/d
 	silent g/^ href=/d
 	" Make the members from the super classes to occupy a line each.
@@ -905,14 +1267,11 @@ fun! s:ConcateMembers(javadoc, class)
 
 	" Grab the members from the first words on each line.
 	" In this case the g command allows us to optimise the search better then a while loop.
-	let members = "" |
-				\ g/^[^"]/let firstWord = expand("<cword>") |
-				\ if (firstWord !=# a:class && match(members, '\<\C'.firstWord.'\>') == -1) |
-				\ let members = members . ';' . firstWord |
-				\ endif
+	g/^[^"]/let firstWord = expand("<cword>") |
+			\ if (firstWord !=# a:class && match(members, '\<\C'.firstWord.'\>') == -1) |
+			\ call add(members, firstWord) |
+			\ endif
 
-	" Get rid of this temp file.
-	bw %
 	return members
 endfun
 
@@ -952,163 +1311,3 @@ endfun
 fun! GetCache()
 	return s:cache
 endfun
-
-" The following bechmark programs try to find out what is the quickest way to
-" grab the first word of a line over the whole file.  The input file needs to be
-" very large, i.e. > 10000 lines, to see the difference.
-"
-" The winner from my machine (AMD1.3GHZ VIM6.250 WinXP) is the g command.
-"
-" To run it
-" :echo WhileLoop()
-" But use a slightly different way to run GCommand()
-" :let b:i = GCommand()
-" :echo b:i
-fun! WhileLoop()
-	let start= localtime()
-	let lineNum = 1
-	let end = line("$")
-	while (lineNum <= end)
-		let word = substitute(getline(lineNum), '^\(\w\+\).*', '\1', '')
-		let lineNum = lineNum + 1
-	endwhile
-
-	return localtime() - start
-endfun
-
-fun! GCommand()
-	let start=localtime()
-	g/^/let temp = expand("<cword>")
-	return localtime() - start
-endfun
-
-" Check if line has the desired format for classes list.  If the javadocpath
-" doesn't have the class list files in the desired format, error messages
-" will be printed.
-" Parameter: javadocpath should be the full path to a top level directory of the
-" javadoc which contains the files, 'allclasses-frame.html' and
-" 'allclasses-noframe.html'
-" Return: 1 for compatible, -1 for non-compatible.
-" call CheckJavadocCompatible('E:/Documents and Settings/Kid/Desktop/CMT3082/GoodChat/doc/javadoc/')
-" call CheckJavadocCompatible('C:/java/j2sdk1.4.0_01/docs/api/') 
-" notice the ending '/'
-fun! CheckJavadocCompatible(javadocpath)
-	let result = s:CheckOverviewPageCompatible(a:javadocpath.'overview-frame.html')
-	if (result == -1)
-		return result
-	endif
-
-	return s:CheckClassesListCompatible(a:javadocpath, a:javadocpath.'allclasses-frame.html')
-	" return s:CheckClassesListCompatible(a:javadocpath, a:javadocpath.'allclasses-noframe.html')
-
-endfun
-
-" Hand-off from CheckClassesListCompatible
-" Return: 1 for compatible, -1 for non-compatible.
-fun! s:CheckClassesListCompatible(javadocpath, classesListFile, ...)
-	if (!filereadable(a:classesListFile))
-		echoerr a:classesListFile . " not found."
-		return -1
-	endif
-
-	exe "edit " . a:classesListFile
-	setlocal readonly
-	setlocal buftype=nowrite
-	setlocal noswapfile
-	call search('<TD NOWRAP><FONT CLASS="', '')
-	" Do the search again, but the cursor should be still at same the line, 
-	" because there is only one match.
-	let lineNum = search('<TD NOWRAP><FONT CLASS="', '')
-	let line = getline(".") 
-	if (ItemCounts(line, '"') != 7)
-		echoerr a:classesListFile . " is not compatible"
-		return -1
-	endif
-	let href = GetItem(line, '"', 3)
-	" Check if the current line has got a html href.
-	if (matchend(href, '.*\.html') == -1)
-		echoerr href
-		echoerr a:classesListFile . " is not compatible"
-		return -1
-	endif
-
-	" If the package exist that check if the packageFrame is compatible 
-	let package = strpart(href, 0, strridx(href, '/'))
-	if (strlen(package) > 0)
-		let result = s:CheckPackagePageCompatible(a:javadocpath.package.'/package-frame.html')
-		if (result == -1)
-			return -1
-		endif
-	endif
-
-	let oldLineNum = getline(".")
-	let lineNum = search('TARGET="classFrame">', '')
-	let lineNum = search('TARGET="classFrame">', '')
-	" Should be on a different line now.
-	if (lineNum == oldLineNum)
-		echoerr a:classesListFile . " is not compatible"
-		return -1
-	endif
-
-	" ItemCounts should return 5
-	let line = getline(".")
-	if (ItemCounts(line, '"') != 5)
-		echoerr a:classesListFile . " is not compatible"
-		return -1
-	endif
-
-	" Check if the current line has got the href in the given position.
-	let href = GetItem(line, '"', 1)
-	if (matchend(href, '.*\.html') == -1)
-		echoerr a:classesListFile . " is not compatible"
-		return -1
-	endif
-
-	" If the package exist that check if the packageFrame is compatible 
-	let package = strpart(href, 0, strridx(href, '/'))
-	if (strlen(package) > 0)
-		let result = s:CheckPackagePageCompatible(a:javadocpath.package.'/package-frame.html')
-		if (result == -1)
-			return -1
-		endif
-	endif
-
-	bw %
-	return 1
-
-endfun
-
-fun! s:CheckOverviewPageCompatible(overviewPage)
-	if (!filereadable(a:overviewPage))
-		echoerr a:overviewPage . " is not found"
-		return -1
-	endif
-
-	exe "edit " . a:overviewPage
-
-	if (search('TARGET="packageFrame"', '') == 0)
-		echoerr a:overviewPage . "is not compatible"
-		return -1
-	endif
-
-	bw %
-	return 1
-endfun
-
-fun! s:CheckPackagePageCompatible(packagePage)
-	if (!filereadable(a:packagePage))
-		echoerr a:packagePage . " is not found"
-		return -1
-	endif
-
-	exe "edit " . a:packagePage 
-	" Should have hrefs that can be open on the classFrame.
-	if (search('TARGET="classFrame"', '') == -1)
-		echoerr a:packagePage . "is not compatible"
-		return  -1
-	endif
-
-	bw %
-	return 1
-endfun
-

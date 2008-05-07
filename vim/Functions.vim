@@ -21,7 +21,7 @@ fun! EditTempFile()
 	" Split open a window to edit the tempFile.
 	" The file name is '_' which can avoid redrawing too much title string.
 	exe "silent split _"
-  setlocal noswapfile
+    setlocal noswapfile
 	setlocal nobuflisted
 	setlocal autoread
 	" setlocal autowrite
@@ -38,8 +38,8 @@ fun! Count(pat)
 	let pos = line2byte(cur) + col(".")
 
 	" find the matches
-  let num = 0
-  execute 'g/' . a:pat . '/let num = num + 1'
+	let num = 0
+	silent execute 'g/' . a:pat . '/let num = num + 1'
 
 	"get back excatly where the cursor was
 	let pos = pos - 1
@@ -146,45 +146,6 @@ fun! GetItem(string, delimiter, index)
 		let temp = strpart(temp, i + strlen(matchstr(temp, a:delimiter)))
 	endwhile
 
-endfun
-
-" Function: Test the position at line lineNum is part of a C or C++ comment.
-" This function has no side effects.  The cursor remains unchanged after its
-" invokation.
-" Return: 1 if the given position in line lineNum is inside a C or C++ comment,
-" otherwise -1 is returned.  
-fun! IsInsideComment(position, lineNum)
-	let retVal = -1
-
-	let startCom = s:Search(a:lineNum, '/\*', '')
-	let startPos = match(getline(startCom), '/\*')
-	let endCom = s:Search(startCom, '\*/', 'forward')
-	let endPos = match(getline(endCom), '\*/')
-
-	if (startCom == 0)
-		let retVal = -1
-	elseif (startCom > a:lineNum)
-		let retVal = -1
-	elseif (endCom < a:lineNum)
-		let retVal = -1
-	elseif (startCom < a:lineNum && endCom > a:lineNum)
-		let retVal = 1
-	elseif (startCom == a:lineNum && startPos < a:position)
-		let retVal = 1
-	elseif (endCom == a:lineNum && endPos > a:position)
-		let retVal = 1
-	endif
-
-	let line = getline(a:lineNum)
-	if (line =~# '//')
-		if (a:position < stridx(line, '//'))
-			let retVal = -1
-		else
-			let retVal = 1
-		endif
-	endif
-
-	return retVal
 endfun
 
 " Function: Search a pattern starting from the given line.
@@ -351,7 +312,7 @@ fun! FileInWindow(fileName, jump)
 		if (strlen(a:fileName) != 0)
 			if (bufname(winbufnr(current)) ==# a:fileName)
 				if (a:jump == 0)
-					GoToWindow(start)
+					call GoToWindow(start)
 				endif
 				return current " Found.
 			endif
@@ -372,7 +333,7 @@ endfun
 " exists, otherwise site it 0 for remaing at the same window.
 " Return: winnr for the buffer, or 0 when buffNum doesn't exist in the open
 " windows.
-function! BufferInWindow(buffNum, jump)
+fun! BufferInWindow(buffNum, jump)
 	" Buffer numbers have value smaller than 0.
 	if (a:buffNum < 0)
 		return 0
@@ -390,13 +351,13 @@ function! BufferInWindow(buffNum, jump)
 	" There's only one open window and it can't match a:fileName, 
 	" because early check has already done that.
 	if (current == start)
-			return 0
+		return 0
 	endif
 
 	while (current != start)
 		if (winbufnr("%") == a:buffNum)
 			if (a:jump == 0)
-				GoToWindow(start)
+				call GoToWindow(start)
 			endif
 			return current " Found.
 		endif
@@ -443,11 +404,13 @@ fun! StandShot(fnt, ...)
 	let winNum = winnr()
 	let width = winwidth(0)
 	let height = winheight(0)
+	let winSize = GetWinSize()
 
 	let retVal = ""
 	exe "let retVal = " . a:fnt. "(" . arguments .")"
 
 	call RestoreWindow(winNum, width, height)
+	" call RestoreWinSize(winSize, winNum)
 
 	" Restore cursor position
 	let pos = pos - 1
@@ -455,7 +418,7 @@ fun! StandShot(fnt, ...)
 
 	" Restore screen line positoin
 	let oldScroll = &scroll
-	set scroll=1
+	set scroll=0
 
 	let offSet = winline() - screenLine
 	" Should move up
@@ -481,6 +444,77 @@ fun! RestoreWindow(winNum, width, height)
 	" However, this might affect the sizes of other windows.
 	exe "vertical resize " . a:width
 	exe "resize " . a:height
+
+endfun
+
+" Function: Get the windows size.
+fun! GetWinSize()
+	let winSize = {}
+	let oldWindow = winnr()
+	let winSize[oldWindow] = ''
+
+	while (1 != 0)
+		wincmd w
+		let current = winnr()
+
+		if (current == oldWindow)
+			break
+		endif
+
+		let winSize[current] = winheight(current) . " " . winwidth(current)
+	endwhile
+
+	return winSize
+endfun
+
+" Function: Restore the windows size accoding to winSize.
+" Parameter: bufJump pass 0 to jump to the starting window, or a number for the buffer window.
+fun! RestoreWinSize(winSize, bufJump)
+	if (len(a:winSize) == 1)
+		return
+	endif
+
+	let biggest = 0
+	let start = 0
+	for key in keys(a:winSize)
+		if (key > biggest)
+			let biggest = key
+		endif
+
+		if (a:winSize[key] == '')
+			let start = key
+		endif
+	endfor
+
+	" no window was open
+	let offSet = 0
+	if (winbufnr(biggest) == -1)
+		let offSet = -1
+	else
+		while (winbufnr(biggest + offSet + 1) != -1)
+			let offSet = offSet + 1
+		endwhile
+	endif
+
+	for [key, value] in items(a:winSize)
+		if (value != '')
+			let winNum = key
+			if (winNum > start)
+				let winNum = winNum + offSet
+			endif
+
+			call GoToWindow(winNum)
+			let size = split(value, ' ')
+			exe "resize " . size[0]
+			exe "vertical resize " . size[1]
+		endif
+	endfor
+
+	if (a:bufJump == 0)
+		call GoToWindow(start + offSet)
+	else
+		call BufferInWindow(a:bufJump, 1)
+	endif
 
 endfun
 
@@ -571,4 +605,31 @@ fun! ReverseLine(str)
    endif
 endfunction
 
-command RevLine call setline(line("."), ReverseLine(getline(".")))
+command! RevLine call setline(line("."), ReverseLine(getline(".")))
+
+let s:smartindent = ""
+let s:cindent     = ""
+let s:autoindent  = ""
+let s:indentexpr  = ""
+let s:textwidth   = ""
+function! SetUpInsertion()
+	let s:smartindent = &smartindent
+	let s:cindent     = &cindent
+	let s:autoindent  = &autoindent
+	let s:indentexpr  = &indentexpr
+	let s:textwidth   = &textwidth
+
+	let &smartindent = 0
+	let &cindent     = 0
+	let &autoindent  = 0
+	let &indentexpr  = ""
+	let &textwidth   = 1000
+endfunction
+
+function! TearDownInsertion()
+	let &smartindent = s:smartindent
+	let &cindent     = s:cindent
+	let &autoindent  = s:autoindent
+	let &indentexpr  = s:indentexpr
+	let &textwidth   = s:textwidth
+endfunction

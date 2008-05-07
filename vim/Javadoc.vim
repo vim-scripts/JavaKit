@@ -7,6 +7,8 @@ let JavadocSourced = "true"
 exe "so " . g:VIMMACROSPATH . "Functions.vim"
 " Need some utilities from this script.
 exe "so " . g:VIMMACROSPATH . "JavaMacros.vim"
+" Need some utilities from this script.
+exe "so " . g:VIMMACROSPATH . "JavaUtil.vim"
 
 " Do the clean up before existing vim. 
 " Note: VimLeavePre event messes up the the last cursor mark.
@@ -32,6 +34,7 @@ nnoremap K :echo StandShot("OpenJavadoc")<CR>
 "   `----------------------------------------------*/
 
 " The executable name for the browser.
+" let s:Browser = '"C:\Program Files\Mozilla Firefox\firefox.exe"'
 let s:Browser = "start IEXPLORE.EXE"
 
 " The top directories for all javadocs. The first entry will be the default
@@ -48,7 +51,7 @@ let s:Browser = "start IEXPLORE.EXE"
 " such as based on the line 'package xxx.yyy;' in the java file that's being
 " edited currently. Change the code in s:LookupDocDirs appropriately, to
 " customise this dynamic lookup behaviour.
-let s:Roots = "C:/java/jdk/current/docs/api/;C:/java/tomcat/current/webapps/tomcat-docs/servletapi/; C:/java/tomcat/current/webapps/tomcat-docs/jspapi/;C:/java/junit/current/javadoc/;C:/java/commons-fileupload/current/docs/apidocs/;"
+let s:Roots = "C:/java/jdk/current/docs/api/;C:/java/tomcat/current/docs/servletapi/; C:/java/tomcat/current/docs/jspapi/;C:/java/junit/current/javadoc/;C:/java/commons-fileupload/current/docs/apidocs/;C:/java/javamail/current/docs/javadocs/;"
 
 " Does the brower support the use of frames? If yes, set it to 1; otherwise set
 " it to 0.  When it's set to 1, this option also suggests the browser lives in a
@@ -58,8 +61,8 @@ let s:UseFrame = 1
 let s:MaxWin = 0
 " If the browser window is not maximised and the s:UseFrame is 1, then set it to
 " the following size.  The browser will be opened in the center of the screen.
-let s:WinWidth = 800
-let s:WinHeight = 700
+let s:WinWidth = 1200
+let s:WinHeight = 900
 
 " Reuse browser window.  When this option is set to 1 all the javadoc will be
 " open in one browser.  If this option have the value 0, then a new instance of the
@@ -104,7 +107,7 @@ let s:entries = ""
 let s:messageHead = "Can't find the javadoc for "
 
 " Use an auxiliary file to display the html.
-let s:javadocFile = GetTempPath()."javadoc.tmp.html"
+let s:javadocFile = GetTempPath()."javadoc.htm"
 
 " This file will store how and when to update the frames in the opened browser.
 " The actual contents in this file will be parsed by the applet periodically.
@@ -129,9 +132,10 @@ let s:previousCursorPosition = 0
 "   `----------------------------------------------*/
 
 " Function: This the main function for this script.  It opens a javadoc in
-" browser for the variable that's under the cursor.
-" Return: If the javadoc can't be opened then a non-empty string given the
-" reason will be returned; otherwise it returns an empty string.
+" 			browser for the variable that's under the cursor.
+"
+" Return: 	If the javadoc can't be opened then a non-empty string given the
+" 			reason will be returned; otherwise it returns an empty string.
 fun! OpenJavadoc()
 	" Store the current cursor position, so we can open the default pages when is
 	" appropriate.
@@ -151,7 +155,7 @@ fun! OpenJavadoc()
 	else
 		let className = s:FindClassName()
 		if (strlen(className) > 0)
-			let retVal = s:OpenClass(className, s:FindImports(), 1)
+			let retVal = s:OpenClass(className)
 		else
 			let retVal = s:messageHead . "the current word."
 		endif
@@ -171,16 +175,18 @@ fun! OpenJavadoc()
 		call s:OpenDefault()
 		let retVal = "Javadoc not found and forced to open the default pages."
 	else
-		let retVal = s:PreOpenDefault(retVal)
+		let retVal = s:PreOpenDefault()
 	endif
 
 	return retVal
 
 endfun
 
-" Function: returned the s:sessionID.  We need this function be global so
-" that other vim peers can query the value of s:sessionID.  Therefore, we
-" can avoid opening a new browser for each vim.
+" Function: We need this function be global so that other vim peers can query
+" 			the value of s:sessionID.  Therefore, we can avoid opening a new
+" 			browser for each vim.
+"
+" Return:	The s:sessionID.
 fun! GetSessionID()
 	return s:sessionID
 endfun
@@ -196,49 +202,7 @@ endfun
 " Function: Open the javadoc in browser for the class with className.
 fun! Lookup(className)
 	call s:LookupDocDirs()
-	call s:OpenClass(a:className, s:FindImports(), 1)
-endfun
-
-" Functions: Lookup a javadoc for a class stealthily without opening or updating
-" any browser.
-" Parameter: class The class name.
-" Return: The full path that points to the location of the javadoc
-" for class.
-fun! GetJavadoc(class)
-	call s:LookupDocDirs()
-	return s:OpenClass(a:class, s:FindImports(), 0)
-endfun
-
-" Function: Extract the class name from line lineNum.
-" Parameter: lineNum The line indexed by this lineNum has got the class name
-" Parameter: word This is the name for the variable in the java source file.
-" Return: The class name, or an empty string when it's not found.
-fun! ExtractClassName(lineNum, word)
-
-	let line = getline(a:lineNum)
-
-	" For matching statement that initialise an object.
-	let pos = match(line, '\C\<'.a:word.'\>\s*=\s\+new\s\+\C\u\h\w*(')
-	" This check is actually redundant, if this function is called from
-	" s:FindClassName's backward searching loop.
-	if (pos != -1) 
-		if (IsInsideComment(pos, a:lineNum) != 1)
-			return substitute(line, '.*=\s\+new\s\+\(\w\+\).*', '\1', '')
-		endif
-	endif
-
-	" For matching a declaration statement
-	let pos = match(line, '\C\u\h\w*\s\+\C\<'.a:word.'\>')
-	if (pos != -1)
-		if (IsInsideComment(pos, a:lineNum) != 1)
-			" Match the type of the current variable
-			let pattern = '.\{-}\(\w\+\)\s\+\C\<' . a:word . '\>.*'
-			return substitute(line, pattern, '\1', '')
-		endif
-	endif
-
-	return "" " className is inside a comment or not found.
-
+	call s:OpenClass(a:className)
 endfun
 
 "   ,----------------------------------------------*\
@@ -251,7 +215,7 @@ endfun
 fun! s:LookupDocDirs()
 	" Use 'package xxx.yyy;' to set the current top level javadoc directory.
 	" Find the javadoc path relative to src directory.
-	let currentDocDir = FindSrcDirectory(FindPackageName()) . "../doc/javadoc/"
+	let currentDocDir = FindSrcDirectory(FindPackageName('/')) . "../doc/javadoc/"
 	if (isdirectory(currentDocDir))
 		let currentDocDir = expand("%:p:h") . "/" . currentDocDir
 	else
@@ -261,10 +225,12 @@ fun! s:LookupDocDirs()
 endfun
 
 " Function: Open the lines that have got import statement, 
-" E.g. import java.io.File; or , import java.net.*;
-" Parameter: line the line which will be looked for the import statements.
-" Return: An empty string for successfully finding the javadoc; otherwise a
-" message indicating what's not found is returned.
+" 			E.g. import java.io.File; or , import java.net.*;
+"
+" Param:	line the line which will be looked for the import statements.
+"
+" Return:	An empty string for successfully finding the javadoc; otherwise a
+" 			message indicating what's not found is returned.
 fun! s:OpenImport(line)
 	" Open a temp file to do all the finding and parsing work.
 	call EditTempFile()
@@ -323,71 +289,22 @@ fun! s:OpenImport(line)
 endfun
 
 " Function: Open the javadoc for class.  The s:DocDirs variable needs to be set
-" 				  before calling this function.
+" 			before calling this function.
 "
-" Parameter: class the class that wants its javadoc to be opened.
-" Parameter: packages implies one of its package contains the class.
+" Param: 	class the class that wants its javadoc to be opened.
 "
-" Parameter: command Set it to 1 to really open or update the browser for the
-" 				   given class, or set it to 0 to return the found javadoc page for
-" 				   the given class.
-"
-" Return: If the command is 1, then an empty string is returned for successfully
-" 				finding the javadoc; otherwise a message indicating what's not found
-" 				is returned.
-" 				If the command is 0, then a file path with the ".html" extention is
-" 				returned, otherwise an error message is returned.
-fun! s:OpenClass(class, packages, command)
-	" Use a special regex to match the class in the javadoc
-	let class = '\<\C'.a:class.'\>[^.]'
-
-	" Need this for matching the exact class name.
-	let oldIgnoreCase = &ignorecase
-	set noignorecase
-
-	" Start working on a temp file now.
-	call EditTempFile()
-
-	let bufNr = bufnr("%")
-	
-	" Dump all the classes names into the tempFile and build up the 
-	" s:entries string.
-	call s:ReadClassesNames()
-
-	let lineNum = -1
-	" Find the line that's got the matched class name and package name
-	let i = Count(class)
-	if (i > 0)
-		call search(class, 'w')
-
-		if (i == 1)
-			let lineNum = line(".")
-		else
-			"Go to the line that's got the closest match against the packages.
-			let lineNum = s:MatchPackage(class, a:packages)
-		endif
-	endif
-
-	"This shouldn't happen
-	if (lineNum <= 0)
-		call s:RestoreOptions(oldIgnoreCase, bufNr)
-		return  s:messageHead . a:class 
-	endif
+" Return: 	If the command is 1, then an empty string is returned for successfully
+" 			finding the javadoc; otherwise a message indicating what's not found
+" 			is returned.
+fun! s:OpenClass(class)
 
 	" Get the javadocPath
-	let javadocPath = s:FindJavadocPath()
+	let docInfo = GetJavadoc(a:class, 0, expand("%:t:r"), expand("%:p"))
 
-	if (strlen(javadocPath) != 0)
-		let s:overviewPage = javadocPath . "overview-frame.html"
-		let href = s:ParseHref("", 0)
-		let package = strpart(href, 0, strridx(href, '/'))
-		let s:packagePage = javadocPath . package . "/package-frame.html"
-		let s:classPage = javadocPath . href
-
-		if (a:command == 0)
-			call s:RestoreOptions(oldIgnoreCase, bufNr)
-			return s:classPage
-		endif
+	if (len(docInfo) > 0)
+		let s:overviewPage = docInfo['root'] . "overview-frame.html"
+		let s:packagePage = substitute(docInfo['path'], '\(.*/\).*', '\1', '') . "/package-frame.html"
+		let s:classPage = docInfo['path']
 
 		" If the javadoc is generated from Sun's toolkit, at least the class page
 		" should exist.
@@ -403,16 +320,15 @@ fun! s:OpenClass(class, packages, command)
 			let s:packagePage = javadocPath
 		endif
 
+		" Open a temp file to output the javadoc page
+		call EditTempFile()
 		call s:OpenBrowser()
-	endif
-
-	call s:RestoreOptions(oldIgnoreCase, bufNr)
-
-	if (strlen(javadocPath) != 0)
+		" clean the temp file
+		bw
 		return ""
-	else
-		return s:messageHead . a:class
 	endif
+
+	return s:messageHead . a:class
 
 endfun
 
@@ -427,11 +343,11 @@ fun! s:OpenDefault()
 	%d
 
 	" Get ready to parse current html file.
-	exe "r " . javadocPath . "index.html"
+	exe "silent r " . javadocPath . "index.html"
 
-	let s:overviewPage = javadocPath . s:ParseHref('name="packageListFrame">', 1)
-	let s:packagePage = javadocPath . s:ParseHref('name="packageFrame">', 1)
-	let s:classPage = javadocPath . s:ParseHref('name="classFrame">', 1)
+	let s:overviewPage = javadocPath . s:ParseHrefFromIndexPage('name="packageListFrame"[> ]')
+	let s:packagePage = javadocPath . s:ParseHrefFromIndexPage('name="packageFrame"[> ]')
+	let s:classPage = javadocPath . s:ParseHrefFromIndexPage('name="classFrame"[> ]')
 
 	" Leave the temp file open so that s:OpenBrowser can have a scratch file to
 	" work on.
@@ -442,30 +358,23 @@ fun! s:OpenDefault()
 
 endfun
 
-" Functions: Find the imports from current file.
-" Return: A string that has all the import lines separated by ';'.
-fun! s:FindImports()
-
-	let retVal = ""
-	let pattern = '\(^\s*import\s\+[^;]*;\).*'
-	" Go to the begining of file and then go the first import
-	exe "normal! gg"
-	let temp = search(pattern)
-
-	if (temp != 0)
-		let lineNum = line(".")
-		while (getline(lineNum) =~# pattern) 
-			let retVal = substitute(getline(lineNum), pattern, '\1', '') . retVal
-			let lineNum = lineNum + 1
-		endwhile
+" Function: Parse href from the index page.
+fun! s:ParseHrefFromIndexPage(pattern)
+	if (search(a:pattern, 'w') == 0)
+		return ""
 	endif
 
-	return retVal
+	let line = getline(".")
+	if (line =~# 'src="')
+		return substitute(line, '.\{-}src="\([^"]*\).*', '\1','')
+	else
+		return ""
+	endif
 endfun
 
 " Function: Set up the vars that are needed before opening the default javadoc
-" pages.
-fun! s:PreOpenDefault(msg)
+" 			pages.
+fun! s:PreOpenDefault()
 	let s:openDefaultNextTime = 1
 	let s:previousFileName = bufname("%")
 	let s:previousCursorPosition = line2byte(line(".")) + col(".")
@@ -473,11 +382,14 @@ fun! s:PreOpenDefault(msg)
 endfun
 
 " Function: Parse a href from a line in a javadoc html file.  This function is
-" javadoc dependent.
-" Parameter: pattern The pattern that matches the href.
-" Parameter: doSearch Pass 1 to this value if we need to do a search for the
-" pattern; otherwise set it 0 if the current line already contains the href.
-" Return: The href that matches the pattern, or "" if it's not found.
+" 			javadoc dependent.
+"
+" Param: 	pattern The pattern that matches the href.
+" Param: 	doSearch Pass 1 to this value if we need to do a search for the
+" 			pattern; otherwise set it 0 if the current line already contains the
+" 			href.
+"
+" Return: 	The href that matches the pattern, or "" if it's not found.
 fun! s:ParseHref(pattern, doSearch)
 	" Do a check for the parameter
 	if (a:doSearch != 0 && a:doSearch != 1)
@@ -505,22 +417,26 @@ fun! s:ParseHref(pattern, doSearch)
 endfun
 
 " Function: Test if the cursor has changed.
+"
 " Return:	Returns 1 for cursor has changed, otherwise 0
-" Remark: b:changedtick can be used to determine the change as well.
+"
+" Remark: 	b:changedtick can be used to determine the change as well.
 fun! s:CursorChanged()
 	return s:previousFileName !=# bufname("%") ||
 		     \ s:previousCursorPosition != line2byte(line(".")) + col(".")
 endfun
 
 " Function: Find the class name for the word (should be a java variable, or a
-" real java class name) under the cursor.  If the word is a class name, then
-" that class name is returned. When the variable is initialised with the new
-" keyword, then the class name will be the name of the exact class, but not its
-" interface or super class.  If no other infomation is found from the source
-" file, i.e. the variable is not initialised through the keyword - new, then the
-" interface or super class name will be returned.  
-" Ruturn: If the class name is found, then its name will be returned, otherwise
-" an empty string "" is returned.
+" 			real java class name) under the cursor.  If the word is a class
+" 			name, then that class name is returned. When the variable is
+" 			initialised with the new keyword, then the class name will be the
+" 			name of the exact class, but not its interface or super class.  If
+" 			no other infomation is found from the source file, i.e. the variable
+" 			is not initialised through the keyword - new, then the interface or
+" 			super class name will be returned.  
+"
+" Ruturn: 	If the class name is found, then its name will be returned, otherwise
+" 			an empty string "" is returned.
 fun! s:FindClassName()
 
 	" If we need to care about the method, then we can use "<cWORD>" to get the
@@ -590,7 +506,7 @@ fun! s:FindClassName()
 		" Sometimes "gD" will jump to the import line, sometimes even a comment
 		" line.  Anyway we'll fix it here.
 		" 1. Fix the case when gD jumps to an import line.
-		if getline(lineNum) =~# '^\s*import\s\+\([^;]\+\);.*$'
+		if (getline(lineNum) =~# '^\s*import\s\+\([^;]\+\);.*$')
 			let className = substitute(getline(lineNum), '.*\.\([^;]*\);.*', '\1', '')
 			" The import line imports a class but not whole package, e.g. import java.awt.*;
 			if (className !~# '^\*$')
@@ -598,7 +514,7 @@ fun! s:FindClassName()
 			endif
 
 		" 2. Fix the case when gD jumps to a comment line
-		elseif IsInsideComment(pos, lineNum) == 1
+		elseif (IsStatement(pos, lineNum) == 0)
 			" We just don't return and let the current word to be parsed again 
 			" after this if-else branches.
 		
@@ -662,142 +578,15 @@ fun! s:RestoreOptions(ignoreCase, bufNr)
 	exe "bwipe " . a:bufNr
 endfun
 
-" Function: This function can only be called if the current buffer is editing a
-" temp file.  It read all the classes names into the current file.
-" and build up the a:entries string.
-fun! s:ReadClassesNames()
-	" Get a clean slate to write on.
-	%d
-
-	let i = ItemCounts(s:docDirs, ";")
-	" Dump all the classes into a file.
-	while (i > 0)
-		let i = i - 1
-		" The current list for all the classes
-		let javadocPath = GetItem(s:docDirs, ";", i)
-
-		if (!filereadable(javadocPath."allclasses-frame.html"))
-			" echoerr javadocPath . " is not a valid directory.  
-			" \Please check s:Roots in Javadoc.vim"
-			continue
-		endif
-
-		" Make the entry pair so that we know which class (line) belongs
-		" to which javadoc top level directory later.
-		let lineContent = line(".") + 1 . s:separator . javadocPath
-		" Note the last entry will have the first linenumber and javadocpath pair
-		let s:entries = lineContent . s:entrySeparator . s:entries
-
-		" Put a line here to make sure the line that contains the matched class
-		" can always fall into the range of two consecutive entries.  Actually,
-		" the exact value for the lineContent doesn't really matter.
-		put = lineContent
-		" Dump the classes names for the current javadocpath.
-		exe "silent r " . javadocPath . "allclasses-frame.html"
-		" r creates an alternate file and we don't want it.
-		bw #
-		exe "normal! G"
-	endwhile
-endfun
-
-" Function: Find the top level javadoc directory for the current line (in the
-" classesnames file), which should have the href for the class.
-" Return: Return the javadoc path. If the path is not found, then an empty
-" string is returned.
-fun! s:FindJavadocPath()
-
-	" A simplified view of the current bufer (tempFile).
-	" +--------------------------+
-	" |current entry             |\ 
-	" |                          | \ 
-	" |                          |  \
-	" |                          |   \
-	" |lineNum (current is the   |    ) current classes list
-	" |desired javadoc path      |   /
-	" |because lineNum sits      |  /
-	" |between current and next  | /
-	" |entry)                    |/
-	" +--------------------------+
-	" |next entry                |\
-	" |                          | \ 
-	" |                          |  \ 
-	" |                          |   \ 
-	" |                          |    ) next classes list
-	" |                          |   /
-	" |                          |  /
-	" |                          | /
-	" |                          |/
-	" +--------------------------+
-
-	" We are on a line that's got the href for the needed class.
-	let lineNum = line(".")
-
-	" i is for the number of top level directories.
-	let i = ItemCounts(s:entries, s:entrySeparator, 'exact')
-	" Scanning forward to find the correct javadocpath
-	while (i > 0)
-		let i = i - 1
-		let currentEntry = GetItem(s:entries, s:entrySeparator, i)
-		let entryLineNum = GetItem(currentEntry, s:separator, 0)
-
-		" If it's the last one so it's got to have the desired javadoc path.
-		if (i == 0)
-			return GetItem(currentEntry, s:separator, 1)
-		endif
-
-		" Go to see the next list
-		let nextEntry = GetItem(s:entries, s:entrySeparator, i-1)
-		let nextEntryLineNum = GetItem(nextEntry, s:separator, 0)
-
-		" The lineNum sits between the first entryLineNum and the 
-		" next one, so the current one is the desired javadoc path.
-		if (entryLineNum < lineNum && lineNum < nextEntryLineNum)
-			return GetItem(currentEntry, s:separator, 1)
-		endif
-	endwhile
-
-	return ""
-
-endfun
-
-" Function: Go to the line that's got the closest match for the class.  This
-" function is javadoc dependent.
-" Parameter: class The name of the class.
-" Parameter: packages Implies the class might be contained in one of them.
-" Return: The line number that's got the match, otherwise -1.
-fun! s:MatchPackage(class, packages)
-	
-	let oldLineNum = line(".")
-
-	while (1 != 0)
-
-		" We are already on a matched line, so get the href.
-		let href = s:ParseHref("", 0)
-		let package = substitute(strpart(href, 0, strridx(href, '/')), '/', '.', 'g')
-		if (stridx(a:packages, package) != -1)
-			return line(".")
-		endif
-
-		" Go on to the next matched line
-		call search(a:class, 'w')
-
-		" This is should not happen, if the java source code compiles.
-		if oldLineNum == line(".")
-			return -1
-		endif
-	endwhile
-
-endfun
-
 " Function: If there is no instance of vim that edits java source code
-" then we should clean the cookie, so the browser won't do nonsense updates.
+" 			then we should clean the cookie, so the browser won't do nonsense updates.
 " 
-" The incorrect updates can happen in the following senario. We're editing
-" some java code again after quiting an previous edit session, which hasn't
-" stopped the browser to accept update requests.  Later we open some javadoc by
-" using this script again, then we'll have TWO browsers displaying the same
-" javadoc, which can be quite annoying especially when the number of browsers
-" goes up.
+" Remark:	The incorrect updates can happen in the following senario. We're editing
+" 			some java code again after quiting an previous edit session, which
+" 			hasn't stopped the browser to accept update requests.  Later we open
+" 			some javadoc by using this script again, then we'll have TWO
+" 			browsers displaying the same javadoc, which can be quite annoying
+" 			especially when the number of browsers goes up.
 fun! s:CleanCookie()
 	if (s:ReuseBrowser == 0)
 		return
@@ -833,9 +622,10 @@ fun! s:CleanCookie()
 endfun
 
 " Function: Changed the value of s:sessionID in the cookie file, but the real
-" s:sessionID is unchanged, so that we can open a new browser later.  
-" Parameter: interval this is the number of seconds that the refreshing should
-" take.
+" 			s:sessionID is unchanged, so that we can open a new browser later.  
+"
+" Param: 	interval this is the number of seconds that the refreshing should
+" 			take.
 fun! s:Refresh(interval)
 	" We're not really changing the s:sessionID. We just put down an invalid
 	" s:sessionID in the cookie file.
@@ -861,8 +651,9 @@ fun! s:Refresh(interval)
 endfun
 
 " Function: Get the s:sessionID from peers
-" Return: A string for the s:sessionID, if it's not found then an empty string
-" is returned.
+"
+" Return: 	A string for the s:sessionID, if it's not found then an empty string
+" 			is returned.
 fun! s:PeersSessionID()
 
 	let servers = substitute(serverlist(), '\W', ';', 'g')
@@ -885,7 +676,8 @@ fun! s:PeersSessionID()
 endfun
 
 " Function: Test if the browser is running on behalf of this script.
-" Return: 1 if the browser is running otherwise -1 for not running.
+"
+" Return: 	1 if the browser is running otherwise -1 for not running.
 fun! s:IsBrowserRunning()
 
 	" The cookie file doesn't exist, this probably the first time for the user to
@@ -923,19 +715,20 @@ endfun
 fun! s:ExtractSessionID()
 	" Get a clean slate to write on.
 	%d
-	exe "r " . s:cookie
+	exe "silent r " . s:cookie
 	bw #
 	let line = getline(".")
 	return strpart(line, 0, stridx(line, '@'))
 endfun
 
 " Function: Open a standard javadoc window, with package list on the
-" overview-frame (top-left frame), packages on the package-frame (bottom-left
-" frame), and the current class on the class-frame (right frame).  
+" 			overview-frame (top-left frame), packages on the package-frame
+" 			(bottom-left frame), and the current class on the class-frame (right
+" 			frame).  
 "
-" The current buffer needs to be editing a temp file, so that it can write the
-" needed html code onto it without messing up the contents in the java source
-" file.
+" Remark:	The current buffer needs to be editing a temp file, so that it can write the
+" 			needed html code onto it without messing up the contents in the java
+" 			source file.
 fun! s:OpenBrowser()
 
 	if (s:UseFrame == 1)
@@ -949,7 +742,7 @@ fun! s:OpenBrowser()
 			exe "silent w!" . s:javadocFile
 			" w creates an alternate file and we don't want it.
 			bw #
-			exe "silent ! " . s:Browser . " file://" . s:javadocFile
+			exe "silent ! " . s:Browser . " file:///" . s:javadocFile
 
 		" We want to reuse the browser, but the browser is not running yet.
 		elseif (s:IsBrowserRunning() == -1)
@@ -972,7 +765,7 @@ fun! s:OpenBrowser()
 			" number" error.
 			exe "silent w!" . s:javadocFile
 			bw #
-			exe "silent ! " . s:Browser . " file://" . s:javadocFile
+			exe "silent ! " . s:Browser . " file:///" . s:javadocFile
 
 		" The browser is up and running so just let the applet to update the frames.
 		else
@@ -989,7 +782,7 @@ fun! s:OpenBrowser()
 
 	" Running a text-mode browser, probably.
 	else
-		exe "silent ! " . s:Browser . " file://" . s:classPage
+		exe "silent ! " . s:Browser . " file:///" . s:classPage
 	endif
 
 endfun
@@ -1009,36 +802,33 @@ fun! s:BuildWithFramePage()
 		3put='self.moveTo(0,0);self.resizeTo(screen.availWidth,screen.availHeight);'
 	else
 	" Place the browser window on the centre
-		3put='var w =  ' . s:WinWidth .';' . 'var h = ' . s:WinHeight . '; if (screen.availWidth > w && screen.availHeight > h) {window.resizeTo(w, h); window.moveTo((screen.availWidth - w)/2, (screen.availHeight - h)/2);}'
+		3put='var w = ' . s:WinWidth .'; ' . 'var h = ' . s:WinHeight . '; if (screen.availWidth > w && screen.availHeight > h) {window.resizeTo(w, h); window.moveTo((screen.availWidth - w)/2, (screen.availHeight - h)/2);}'
 	endif
 
 	4put='</script>'
-	5put='<TITLE>'
-	6put='Java 2 Platform SE'
-	7put='</TITLE>'
-	8put='</HEAD>'
-	9put='<FRAMESET cols=\"18%,82%\" onLoad=\"window.frames[3].focus();\">'
-	10put='<FRAMESET rows=\"30%,70%\">'
-	11put='<FRAMESET cols=\"0%, 100%\" frameborder=\"0\" framespacing=\"0\" border=\"0\">'
+	5put='</HEAD>'
+	6put='<FRAMESET cols=\"22%,78%\" onLoad=\"window.frames[3].focus();\">'
+	7put='<FRAMESET rows=\"30%,70%\">'
+	8put='<FRAMESET cols=\"0%, 100%\" frameborder=\"0\" framespacing=\"0\" border=\"0\">'
 
 	if (s:ReuseBrowser == 1)
-		12put='<FRAME src=\"JavadocApplet.html\" marginheight=\"0\" marginwidth=\"0\" scrolling=\"no\">'
+		9put='<FRAME src=\"JavadocApplet.html\" marginheight=\"0\" marginwidth=\"0\" scrolling=\"no\">'
 	else
-		12put='<FRAME marginheight=\"0\" marginwidth=\"0\" scrolling=\"no\">'
+		9put='<FRAME marginheight=\"0\" marginwidth=\"0\" scrolling=\"no\">'
 	endif
 
-	13put='</FRAME>'
-	14put='<FRAME name=\"packageListFrame\" src=\"' . s:overviewPage. '\">'
-	15put='</FRAMESET>'
-	16put='<FRAME name=\"packageFrame\" src=\"' . s:packagePage . '\">'
-	17put='</FRAMESET>'
-	18put='<FRAME name=\"classFrame\" src=\"' . s:classPage . '\">'
-	19put='</FRAMESET>'
-	20put='</HTML>'
+	10put='</FRAME>'
+	11put='<FRAME name=\"packageListFrame\" src=\"file:///' . s:overviewPage . '\">'
+	12put='</FRAMESET>'
+	13put='<FRAME name=\"packageFrame\" src=\"file:///' . s:packagePage . '\">'
+	14put='</FRAMESET>'
+	15put='<FRAME name=\"classFrame\" src=\"file:///' . s:classPage . '\">'
+	16put='</FRAMESET>'
+	17put='</HTML>'
 endfun
 
-" Function: write the change into the cookie file so the browser will display
-" the new javadocs.
+" Function: Write the change into the cookie file so the browser will display
+" 			the new javadocs.
 fun! s:WriteCookie()
 	" Get a clean slate to write on.
 	%d
@@ -1052,3 +842,215 @@ fun! s:WriteCookie()
 	bw #
 endfun
 
+" The classes from the s:Roots.
+let s:ClassList = {}
+" Function: Build the class list from s:Roots
+fun! s:BuildClassList()
+
+	" Open the temp file to dump all the classes.
+	call EditTempFile()
+	let i = ItemCounts(s:Roots, ";")
+
+	" Dump all the classes into a file.
+	while (i > 0)
+		let i = i - 1
+		" The current list for all the classes
+		let javadocPath = GetItem(s:Roots, ";", i)
+
+		if (!filereadable(javadocPath."allclasses-frame.html"))
+			" echoerr javadocPath . " is not a valid directory.  
+			" \Please check s:Roots in Javadoc.vim"
+			continue
+		endif
+
+		" Dump the classes names for the current javadocpath.
+		exe "silent r " . javadocPath . "allclasses-frame.html"
+		" r creates an alternate file and we don't want it.
+		bw #
+
+		" only needed the class path
+		v/<A HREF="/d  
+		%s/.*<A HREF="\([^"]*\).*/\1/ 
+		%s/\.html$//
+
+		let lines = sort(getbufline(bufnr('%'), 1, "$"))
+		let s:ClassList[javadocPath] = lines
+	endwhile
+
+	" close the temp file
+	bw
+endfun
+
+" Function:	Get the javadoc html file the given class. 
+"
+" Param: 	class The class name to be searched for.
+"
+" Param: 	findSource If the value is 1 and the javadoc html doesn't exist,
+" 		 	then try go the source code for the class.
+"
+" Param:	currentClass The class name for the currently opened java source file.
+"
+" Param:	sourcePath The full path to the java source code.
+"
+" Precon:	The current buffer has to be displaying the source code from sourcePath.
+"
+" Return:	A map(dictionary) with the given key as explained follow
+"				'fqn' - the fully qualified name for the class.
+"				'path' - the javadoc path to class
+"				'root' - the root directory for the javadoc.
+"
+"			If the javadoc is not found, and findSource is '1',
+"			then an attempt will be given to find the the source code.
+"			Eventually, if nothing is found, then an empty map is returned.
+fun! GetJavadoc(class, findSource, currentClass, sourcePath)
+	if (len(s:ClassList) == 0)
+		if (strlen(s:Roots) > 0)
+			silent call s:BuildClassList()
+		else
+			echoerr "s:Roots is empty and must be set to a valid javadoc top level directory."
+			return {}
+		endif
+	endif
+
+	" the full path to the javadoc
+	let path = ""
+
+	" fully qualified name
+	let fqn = ""
+
+	" The packages imported for the current class
+	let packages = ExtractImports()
+	" a:class maybe itself is a fully qualified name
+	if (strridx(a:class, '.') > 0)
+		call insert(packages, a:class)
+	endif
+
+	let retVal = {}
+
+	" find the class list
+	for [key, value] in items(s:ClassList)
+
+		for pack in packages
+			" a:class is a fully qualified name
+			if (a:class == pack)
+				let fqn = pack
+
+			" Importing an explicit class, e.g. 'import java.sql.Timestamp;'
+			elseif (pack =~# '\.' . a:class . '$')
+				let fqn = pack
+
+			" This is a wildcard import, e.g. 'import java.io.*;'
+			elseif (strridx(pack, '.*') > 0)
+				let fqn = substitute(pack, '\*', a:class, '')
+
+			" static import from java 5, e.g. 'import static baodian.util.Tool.logger;'
+			else
+				continue
+			endif
+
+			let path = s:BinarySearch(substitute(fqn, '\.', '/', 'g'), value, 0, len(value))
+			if (path != "")
+				let path = key . path . '.html'
+				let root = key
+
+				let retVal['fqn']  = fqn
+				let retVal['path'] = path
+				let retVal['root'] = key
+				break
+			endif
+		endfor
+
+		if (len(retVal) > 0)
+			break
+		endif
+	endfor
+
+	if (len(retVal) == 0 && a:findSource == 1)
+		return s:GetJavaSource(a:class, packages, a:currentClass, a:sourcePath)
+	else
+		return retVal
+	endif
+endfun
+
+" Function: Get the java source code path for the class with the given name. 
+"
+" Param: 	class The class name to be searched for.
+"
+" Param:	packages The dependent packages for the currentClass.
+"
+" Param:	currentClass The class name for the currently opened java source file.
+"
+" Param:	sourcePath The full path to the java source code.
+"
+" Precon:	The current buffer has to be displaying the source code from sourcePath.
+"
+" Return:	A map(dictionary) with the given key as explained follow
+"				'fqn' - the fully qualified name for the class.
+"				'path' - the source code path to class
+"				'root' - the toppest level directory for project where class resides.
+"			If the class isn't found, then an empty map is returned.
+fun! s:GetJavaSource(class, packages, currentClass, sourcePath)
+	let fqn = ""
+	let path = ""
+	let root = ""
+
+	let retVal = {}
+
+	" let currentClass = expand("%:t:r")
+	let packageName = FindPackageName('.')
+	if (packageName != "")
+		" import all the classes from the same package
+		call add(a:packages, packageName. '*')
+	endif
+
+	" let pathHead = substitute(expand("%:p"), packageName . a:currentClass . '.java$', '', '')
+	let pathHead = substitute(a:sourcePath, packageName . a:currentClass . '.java$', '', '')
+	let packageHead = ExtractPackageHead(packageName)
+
+	for pack in a:packages
+		let head = ExtractPackageHead(pack)
+
+		if (head == packageHead)
+			let path = ""
+			if (pack =~# '\.\<' . a:class . '\>$')
+				let path = pathHead . substitute(pack, '\.', '\\', 'g') . '.java'
+			elseif (strridx(pack, '.*') > 0)
+				let pack = substitute(pack, '\*', a:class, '')
+				let path = pathHead . substitute(pack, '\.', '\\', 'g') . '.java'
+			endif
+
+			if (filereadable(path))
+				let fqn = pack
+				let root = pathHead
+				
+				let retVal['fqn'] = fqn
+				let retVal['path'] = path
+				let retVal['root'] = root
+
+				return retVal
+			endif
+		endif
+
+	endfor
+
+	return retVal
+endfun
+
+" Function: Search the key in list, if key exists in list then key is returned, 
+" 			otherwise an empty string is returned.
+fun! s:BinarySearch(key, list, start, end)
+	let low = a:start
+	let high = a:end - 1
+	while (low <= high)
+		let middle = (low + high) / 2
+		if (a:key > a:list[middle])
+			let low = middle + 1
+		elseif (a:key < a:list[middle])
+			let high = middle - 1
+		else
+			return a:key
+		endif
+	endwhile
+
+	return ""
+endfun

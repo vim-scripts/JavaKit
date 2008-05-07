@@ -1,0 +1,23 @@
+<!-- 
+	The official download for the jdk6 javadoc is in unix format, we have to
+	transform the file into dos format in order for our JavadocApplet.html to work.
+	Otherwise when we open javadoc, an error will occur at line 107
+	'if (win.location.href.search(/\.html$/) == -1)'
+	and quoting 'access denied' for win.location.  This is something about the
+	implementation issues of javascript in IE.
+
+
+	Run this script in the jdk api directory, i.e.
+		C:\java\jdk\current\docs\api>ant
+-->
+
+<project name="convert unix to dos" default="all" basedir=".">
+	<target name="all">
+		<!-- change from file format from unix to dos -->
+		<replaceregexp match="$" replace="&#xD;" flags="gm" byline="false">
+			<fileset dir=".">
+				<include name="**/*.html"/>
+			</fileset>
+		</replaceregexp>
+	</target>
+</project>

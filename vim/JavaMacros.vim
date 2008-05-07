@@ -2,21 +2,23 @@
 if exists("JavaMacrosSourced")
 	finish
 endif
-let JavaMacrosSourced = "ture"
+let JavaMacrosSourced = "true"
 
 " The function CompileJavaFile calls functions in this script.
 exe "so " . g:VIMMACROSPATH. "Javac.vim"
 " Need some utilities from this script.
 exe "so " . g:VIMMACROSPATH. "Functions.vim"
+" Need some utilities from this script.
+exe "so " . g:VIMMACROSPATH. "JavaUtil.vim"
 
 " ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 " ~                    Key bindings and commands                         ~
 " ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-nnoremap <silent> ;c :silent call CompileJavaFile()<CR><Left><Right>
-nnoremap <silent> ;v :silent call RunAppletViewer()<CR>
-nnoremap <silent> ;r :silent call RunJava()<CR>
-nnoremap <silent> ;t :silent call EditSourceOrTest()<CR>
-command! Html silent call AppletHtmlFile()
+nnoremap <silent> ;c :silent call <SID>CompileJavaFile()<CR><Left><Right>
+nnoremap <silent> ;v :silent call <SID>RunAppletViewer()<CR>
+nnoremap <silent> ;r :silent call <SID>RunJava()<CR>
+nnoremap <silent> ;t :silent call <SID>EditSourceOrTest()<CR>
+command! Html silent call <SID>AppletHtmlFile()
 
 " ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 " ~                   Short Cut for Often Used Words                     ~
@@ -50,12 +52,12 @@ let s:TestSrc = "test"
 let s:Shallow = 1
 
 " Do we use J2SE 1.4 or not?
-let s:UseJava14 = "true"
+let s:UseLastestJdk = "true"
 
 " Setup some vars for 1.4
-if (s:UseJava14 =~# "true")
+if (s:UseLastestJdk =~# "true")
 	" Enable the assert keyword
-	let s:JavaSource = " -source 1.4 "
+	let s:JavaSource = " -source 1.6 "
 	let s:EnableAssertion = " -ea "
 else
 	let s:JavaSource = ""
@@ -70,6 +72,8 @@ let s:junitGui = "--gui"
 " ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 let s:classPath = $CLASSPATH
 
+let g:JavacUseLint = 0
+
 " ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 " ~             Directory Tree for A Sample Project                      ~
 " ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -83,30 +87,30 @@ let s:classPath = $CLASSPATH
 "
 "  project-+
 "          |- src  [ package org.xxx.yyy.zzz ]
-"					 |
+"		   |
 "          |- test [ package test.org.xxx.yyy.zzz ] 
 "          |       (Test case package is nested one level shallower than main package)
-"					 |
+"		   |
 "          |- build +         
-"										|- classes +
-"										|          |(directory for package1)
-"										|          |- .
-"										|          |
-"										|          |-(top level class files)
+"					|- classes +
+"					|          |(directory for package1)
+"					|          |- .
+"					|          |
+"					|          |-(top level class files)
 "                   | 
 "                   |- test+
 "                          |( test class files )
-"												 	 | 
-"												 	 |- (directory for test.package1 
-"												 	 | 
-"												 	 |- . 
+"					       |
+"					       |- (directory for test.package1 
+"					       | 
+"					       |- . 
 
 " ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 " ~                    			Global Functions                             ~
 " ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 " Function: Compile the current java source file.  
 " If the compilation is OK, then the class file will go to the build directory
-fun! CompileJavaFile()
+fun! s:CompileJavaFile()
 	let classPath = s:classPath
 	let build = ""
 
@@ -114,7 +118,7 @@ fun! CompileJavaFile()
 	" Change the current directory to where the source file lies in
 	silent cd %:p:h
 
-	let packageName = FindPackageName()
+	let packageName = FindPackageName('/')
 	" Find the build directory based on the package.
 	let build = s:FindBuild(packageName)
 	if strlen(packageName) > 1
@@ -148,19 +152,32 @@ fun! CompileJavaFile()
 		let class = '.'
 	endif
 
-	silent call InvokeJavac('javac', s:JavaSource, '-deprecation', '-classpath', classPath,
-	\ '-d ' . class, '-extdirs', g:MYJAVALIB, expand('%'))
+	if isdirectory(build . '/../lib')
+		let dirs = substitute(glob(build . "/../lib/*.jar"), '\n', ';', 'g')
+		let classPath = classPath . ';' . dirs
+	endif
+
+	let lint = ''
+	if (g:JavacUseLint)
+		let lint = '-Xlint'
+	endif
+
+	" '-g' is for generating all debugging information
+	silent call InvokeJavac('javac', s:JavaSource, '-g:lines,vars,source', 
+				\ '-deprecation', '-classpath', classPath, '-encoding utf8', 
+				\ '-d ' . class, '-extdirs', g:MYJAVALIB, lint, expand('%'))
 endfun
 
+let g:JavaMain=""
 " Function: Run the java application. This assumes the class 
 " in the current source code has the main method.
-fun! RunJava()
+fun! s:RunJava()
 	let classPath = s:classPath
 
 	silent cd %:p:h
 
 	let className = expand("%:t:r")
-	let packageName = FindPackageName()
+	let packageName = FindPackageName('/')
 	let build = s:FindBuild(packageName)
 	let test = s:FindTest(packageName)
 
@@ -187,16 +204,26 @@ fun! RunJava()
 		let target = target . " " . s:junitGui
 	endif
 
-	silent exe "!start java -Djava.ext.dirs=".g:MYJAVALIB . " -cp ".classPath . " " 
+	if isdirectory(build . '/../lib')
+		let dirs = substitute(glob(build . "/../lib/*.jar"), '\n', ';', 'g')
+		let classPath = classPath . ';' . dirs
+		" echoerr classPath
+	endif
+
+	if (strlen(g:JavaMain) > 0)
+		let target = g:JavaMain
+	endif
+
+	silent exe "!start java -Xmx200m -Djava.ext.dirs=".g:MYJAVALIB . " -cp ".classPath . " " 
 	\. s:EnableAssertion . target
 endfun
 
 " Function: Run the appletviewer for the current java source file or the html
 " file
-fun! RunAppletViewer()
+fun! s:RunAppletViewer()
 	silent cd %:p:h
 
-	let packageName = FindPackageName()
+	let packageName = FindPackageName('/')
 	let build = s:FindBuild(packageName)
 	let filenameRoot = expand("%:r")
 	let htmlFile = filenameRoot . ".html"
@@ -218,7 +245,7 @@ fun! RunAppletViewer()
 endfun
 
 " Function: Create an html file template for applet
-fun! AppletHtmlFile()
+fun! s:AppletHtmlFile()
 	let filenameRoot = expand("%:r")
 	let htmlFile = filenameRoot . ".html"
 	if filewritable(htmlFile) == 1
@@ -235,77 +262,46 @@ endfun
 
 " Function: Generate a class template with the file name as the class name
 fun! PutClassName()
+
 	let filename = expand("%:r")
 	" Test file is handled differently
 	if filename =~# '.\+Test$'
 		return
 	endif
-	0put = 'public class ' . filename
-	1put = '{'
-	exe "normal! gg"
+
+	call JCommentWriter()
+  	exe "normal! a\<CR>\<Esc>"
+
+	let packageName = ""
+	let path = expand("%:p")
+	if (path =~? '.*src')
+		let temp = substitute(substitute(path, '.*src\\', '', ''), '\\', '.', 'g')
+		let temp = substitute(substitute(temp, '.*src/', '', ''), '/', '.', 'g')
+		let packageName = substitute(temp, "." . expand("%:t"), '', '')
+	endif
+
+	if (strlen(packageName) > 0)
+		exe "normal! apackage " . packageName . "; \<CR>\<Esc>"
+		exe "normal! a\<CR>\<Esc>"
+	endif
+
+	exe "normal! apublic class " . filename . "\<CR>\<Esc>"
+	exe "normal! a{\<CR>\<Esc>"
 
 endfun
 
 " Function: Switch between test file and source file.  The test case file has to
 " have the extentions as "Test.java", for exmaple "SimpleTest.java"
-fun! EditSourceOrTest()
+fun! s:EditSourceOrTest()
 	let fileName = expand("%")
 
-	let packageName = FindPackageName()
+	let packageName = FindPackageName('/')
 	if (fileName =~# 'Test\.java$')
 		call s:EditSourceFile(packageName)
 	elseif (packageName !~# '^test' && fileName =~# '\.java$')
 		call s:EditTestFile(packageName)
 	endif
 
-endfun
-
-" Function: Find the package name for the current file.  The return value
-" represents the directory structure for the package.  For exmaple, package
-" foo.bar, will return foo/bar/ If the current file is not included in a
-" package, then an empty string is returned.
-fun! FindPackageName()
-	let lastLine = line("$")
-	let currentLine = 1
-
-	while currentLine <= lastLine
-		let ln = getline(currentLine)
-		if ln =~# '^\s*package'
-			let offset = matchend(ln, '^\s*package\s*')
-			let lastChar = match(ln, '\s*;')
-			let packageName = strpart(ln, offset, lastChar - offset)
-			let packageName = substitute(packageName, '\.', '/', 'g')
-			return packageName . "/"
-		endif
-
-		let currentLine = currentLine + 1
-	endwhile
-
-	return ''
-endfun
-
-" Function: Find the src directory, it's ended with a /
-fun! FindSrcDirectory(packageName)
-	" Find how deep the current directroy is nested in the source code directory tree
-	let depth = ItemCounts(a:packageName, '/', 'exact')
-
-	" The test directory is nested one level shallower.
-	if (a:packageName =~# '^test')
-		let depth = depth - s:Shallow
-		if (depth == 0)
-			return ''
-		elseif (depth < 0)
-			" TODO climb up the directory
-		endif
-	endif
-
-	let src = ""
-	while depth > 0
-		let src = "../" . src
-		let depth = depth - 1
-	endwhile
-
-	return src
 endfun
 
 " Because invoking javah is a bit slow, so we cache all the templates.
@@ -318,14 +314,24 @@ let s:templateCache = ""
 " 		{
 " 		}
 " 		^
-"    (place the cursor at this point and then on the command line
-"     :silent call InsertJavaTemplate("java.awt.event.MouseListener"), 
-"     then you should see the template for the MouseListener being inserted.)
-fun! InsertJavaTemplate(interfaceName)
+"     place the cursor at this point and then on the command line
+"     :silent call InsertJavaTemplate("java.awt.event.MouseListener")
+"     then you should see the template for the MouseListener being inserted. 
+"	  Insert a wrapper class 
+"	  :silent call InsertJavaTemplate("javax.mail.internet.MimeMessage", 'message', 'Communication')
+"                                                                           ^              ^
+"                                                                       inner field     class name
+fun! s:InsertJavaTemplate(interfaceName, ...)
 
 	let template = ""
 	if (!Hashtable_exist(a:interfaceName, s:templateCache))
-		let template = s:GenerateTemplate(a:interfaceName)
+
+		if (a:0 > 0)
+			let template = s:GenerateTemplate(a:interfaceName, a:1, a:2)
+		else
+			let template = s:GenerateTemplate(a:interfaceName)
+		endif
+
 		let s:templateCache = Hashtable_put(a:interfaceName, template, s:templateCache)
 	else
 		let template = Hashtable_get(a:interfaceName, s:templateCache)
@@ -462,7 +468,9 @@ endfun
 " packageName is the return value of FindPackageName
 fun! s:FindBuild(packageName)
 	let srcDir = FindSrcDirectory(a:packageName)
-	if (isdirectory(srcDir.'../build/class'))
+	if (isdirectory(srcDir.'../build/WEB-INF/classes'))
+		return srcDir.'../build/WEB-INF/classes'
+	elseif (isdirectory(srcDir.'../build/class'))
 		return srcDir.'../build/class'
 	elseif ( isdirectory(srcDir.'../build') && a:packageName !=# "^test")
 		return srcDir.'../build/' " This is for backward-compability.
@@ -482,12 +490,17 @@ fun! s:FindTest(packageName)
 endfun
 	
 " Function: Find the template the for the given interfaceName.
-fun! s:GenerateTemplate(interfaceName)
+fun! s:GenerateTemplate(interfaceName, ...)
 	let classPath = s:classPath
-	let packageName = FindPackageName()
+	let packageName = FindPackageName('/')
 	let build = s:FindBuild(packageName)
 	let test = s:FindTest(packageName)
 	let classPath = classPath . ';' . build . ';' . test . ';'
+	if isdirectory(build . '/../lib')
+		let dirs = substitute(glob(build . "/../lib/*.jar"), '\n', ';', 'g')
+		let classPath = classPath . ';' . dirs
+		" echoerr classPath
+	endif
 
 	call EditTempFile()
 	exe "r! javap -extdirs " . g:MYJAVALIB . " -classpath " . classPath . 
@@ -500,40 +513,82 @@ fun! s:GenerateTemplate(interfaceName)
 	%s/^\s\+\|abstract \|\w\+\.//eg
 
 	" Insert the name of the parameter for premitive types
-	%s/\<\l\w\+\>\%(,\|)\)\@=/\=submatch(0) . " " . submatch(0)[0]/eg
+	let i = 0
+	let pattern = '\<\l\h\+\>\%(,\|)\)\@='
+	g/./call search(pattern) | exe 's/' . pattern .'/\=submatch(0) . " " . submatch(0). i /e' | let i = i + 1
 
 	" Insert the name of the paramter for Object types 
-	%s/\u\w\+\%(,\|)\)\@=/\=submatch(0) . " ". tolower(strpart(submatch(0), strlen(submatch(0)) -         strlen(GetItem(submatch(0), '\u', ItemCounts(submatch(0), '\u')-1)) - 1 ))/eg 
+	let pattern = '\(throws.*\)\@<!\u\w\+\%(,\|)\|\[\]\()\|,\)\)\@='
+	g/./call search(pattern) | exe 's/' . pattern .'/\=submatch(0) . " ". tolower(strpart(submatch(0), strlen(submatch(0)) - strlen(GetItem(submatch(0), "\\u", ItemCounts(submatch(0), "\\u")-1)) - 1 )). i /e' | let i = i + 1 
+
+	" Only the public methods are wanted
+	%v/\<public\>/d
+
+	" $ points to a inner class object
+	%s/\$/\./eg
+
+	" static methods are not wanted
+	silent g/\<static\>/d
+
+	" get rid of the synchronized key word
+	silent g/\<synchronized\>/d
 
 	" Replace ; with a pair of curly braces
-	g/./if line(".") != line("$") | s/;/{}/ | else | s/;/{}/ | endif
+	if (a:0 == 0)
+		g/./if line(".") != line("$") | s/;/{}/ | else | s/;/{}/ | endif
+	else
+
+		" delete all the ;
+		%s/;//g
+
+		exe "normal! gg"
+		while line(".") <= line("$")
+			let content = getline(".")
+			" get the method name
+			let method = GetItem(GetItem(content, '(', 0), ' ' , ItemCounts(GetItem(content, '(', 0), ' ', 'exact'))
+			let params = s:GetParamters(GetItem(GetItem(content, '(', 1), 'throws', 0))
+
+			" This is a method that return no value.
+			if (content =~# 'public void')
+				exe "normal! o{\<CR>\<Tab>" . a:1 . "." . method . "(" .params. ";\<CR>}\<CR>\<Esc>"
+			" This is a constructor.
+			elseif(content =~# 'public \u\w\+(')
+				if (strlen(params) == 0)
+					let params = ")"
+				endif
+				exe 's/\u\w\+(\@=/' . a:2 .'/e'
+				exe "normal! o{\<CR>\<Tab>super(" . params .";\<CR>}\<CR>\<Esc>"
+			" A normal method that returns a value.
+			else
+				exe "normal! o{\<CR>\<Tab>return " . a:1 . "." . method . "(" . params . ";\<CR>}\<CR>\<Esc>"
+			endif
+
+			if (line(".") == line("$"))
+				break
+			endif
+
+			" go to next line
+			exe "normal! j"
+		endwhile
+
+		exe "normal! ggOprivate " . a:1 . ";\<Esc>"
+	endif
+
+	" move the throw statement next line
+	" silent %s/throw/&/
+
+	" delete the white space at the end
+	" silent %s/)\s\+$/)/
 
 	" store the content of this file in a register temporarily
 	let oldZ = @z
-	exe 'normal! "zygg'
+	exe 'normal! G"zygg'
 	bw %
 	let retVal = @z
 	let @z = oldZ
 	return retVal
 endfun
 
-" ============= some old mappings =============
-"nnoremap mr :silent cd %:p:h<Bar>!java %:t:r<CR>
-"nnoremap mk :w<Bar>cd %:p:h<Bar>!javac %<CR>
-
-"nnoremap mk :silent w<Bar>cd %:p:h<Bar>silent call ReadCom("javac", expand("%"))<CR>
-
-"nnoremap mr :!java -cp %:p:h %:t:r<CR>
-"ca mr !java -cp %:p:h %:t:r
-"A different way to run the java file "javac -cp c:\mm\mm.mysql-2.0.4-bin.jar;.  source.java"
-" nnoremap <silent> mr :silent cd %:p:h<Bar>exe "!java -Djava.ext.dirs=" . g:MYJAVALIB . " " . expand("%:t:r")<CR><CR>
-
-" nnoremap <silent> mk :if isdirectory("test")<Bar>let class = "../build/test"<Bar>else<Bar>let class = "."<Bar>endif<Bar>silent w<Bar>silent cd %:p:h<Bar>silent call ReadCom("javac", "-deprecation", "-classpath", "%CLASSPATH%;.;", "-d ".class, "-extdirs", g:MYJAVALIB, expand("%"))<CR><Left><Right>
-
-
-" ============== the vim way to setup javac  =============
-" error format for javac
-" set efm=%A%f:%l:\ %m,%-Z%p^,%-C%.%#
-" set shellpipe=>%s\ 2>&1 "for WinNT or Win2000
-" set makeprg=javac
-" use :make % to compile the source code
+fun! s:GetParamters(input)
+	return substitute(substitute(substitute(a:input, '\w\+\(\.\w\+\)* ', '', 'g'), '\[\|\]', '', 'g'), '\s\+$', '', '')
+endfun

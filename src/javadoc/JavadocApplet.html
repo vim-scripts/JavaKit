@@ -1,0 +1,154 @@
+<html>
+	<head>
+		<script>
+		// IE doesn't take more than two arguments for setTimeOut, 
+		// so we have to make this a global.
+		var urls = null;
+		var timerID = null;
+
+		function updateFrames()
+		{
+			var temp = document.javadocHelper.getFileContent().toString();
+			// Nothing to be done.
+			if (temp.length <= 0)
+				return;
+
+			// Stop updating the frames
+			if (temp.search(/^@~stopupdate$/) == 0)
+			{
+				if (timerID != null)
+					clearInterval(timerID);
+				return;
+			}
+
+			urls = temp.split("~");
+			// The user has got the UseFrame option set to 1. urls[0] is the sessionID
+			// and javadocID, for more detailed documentation see
+			// JavadocHelper#setUpdateID(String l)
+			if (urls.length == 5)
+			{
+				for (var i = 1; i < 4; i++)
+					setLocation(urls, i);
+
+				var keepView = urls[4];
+				// This is the first time the frames being loaded
+				if (keepView == 2)
+					scrollFrames();
+				// We don't want to keep the current views even if they're the same
+				// as the previous ones.
+				else if (keepView == 0)
+				// Can't do the scrolling immediately, because the new locations 
+				// might not have been loaded yet.
+					setTimeout("scrollFrames()", 10);
+
+				parent.parent.frames[3].focus();
+			}
+
+			// This feature hasn't been implemented yet.
+			// The class page will take up all the space in the browser window.
+			// The urls for overviewPage and packagePage will be empty.
+			if (urls[1].length == 0)
+			{
+				if (classPage.search(urls[3]) == -1)
+				{
+					parent.parent.frames[1].location = urls[3];
+					parent.parent.frames[1].focus();
+				}
+			}
+		}
+
+		// Set the frames href location.
+		function setLocation(urls, index)
+		{
+			var keepView = urls[4];
+			// The frames are being loaded the first time, and their srcs are already
+			// set in the temp page, so no need to do it here.
+			if (keepView == 2)
+				return;
+			// We want to keep the current view if the location hasn't been changed
+			else if (keepView == 1)
+			{
+				var href = "file:///" + urls[index].replace(" ", "%20");
+				href = href.replace("\\", "/");
+				if (parent.parent.frames[index].location.href.search(href) == -1)
+					parent.parent.frames[index].location = href;
+			}
+			else
+				parent.parent.frames[index].location = "file:///" + urls[index];
+		}
+			
+
+		// Scroll to the package name and class name that we want to display.
+		function scrollFrames()
+		{
+			var docdir = urls[1].replace(/(.*)\/.*\.html/, '$1'); 
+			var classRelativePath = urls[3].replace(docdir, '');
+			var temp = classRelativePath.substring(1, classRelativePath.length);
+
+			// Get the word in the overview page that we definitely want to show.
+			var overviewText = temp.replace(/\//g, '.').replace(/(.*)\..*\.html/, '$1');
+
+			// Get the word in the package page that we definitely want to show.
+			var packageText = classRelativePath.replace(/.*\/(.*)\.html/, '$1');
+
+			scrollToText(parent.parent.window.frames[1], overviewText);
+			scrollToText(parent.parent.window.frames[2], packageText);
+
+			// Adjust the view a little bit.
+			parent.parent.window.frames[1].scrollBy(-40, 40);
+			parent.parent.window.frames[2].scrollBy(-40, 40);
+
+		}
+
+		// This is for "scrolling" to the text
+		function scrollToText(win, text) 
+		{
+			// This is not a html page.
+			if (win.location.href.search(/\.html$/) == -1)
+				return;
+
+			if (navigator.appName.indexOf("Microsoft") != -1)
+			{
+				var contents = win.document.body.createTextRange();
+				// Search forward and [match whole word and case sensitive]
+				contents.findText(text, 0, 2|4);
+				contents.scrollIntoView();
+			}
+			// This is for netscape and others, that support window.find()
+			else
+				// Do case sensitive forward search thus we "scroll" to the text.
+				win.find(text, true, false); 
+		}
+
+		function exitBrowser()
+		{
+			if (timerID != null)
+				clearInterval(timerID);
+			document.javadocHelper.exitBrowser();
+		}
+
+		// Update the frames every 1 second.
+		function update()
+		{
+			timerID = setInterval("updateFrames()", 500);
+		}
+
+		function displayErrorLine(message, url, lineNum)
+		{
+			status = "Error: " + message + " happened at line " + lineNum + 
+					 " in file " + url;
+			return true;
+		}
+
+		// Show the errors on the status line.
+		window.onerror = displayErrorLine;
+
+		</script>
+	</head>
+
+	<body onLoad="update();" onUnload="exitBrowser();">
+		<applet name="javadocHelper" code="JavadocHelper.class" 
+		archive="JavadocHelper.jar" width=0 height=0>
+		<!-- <applet name="javadocHelper" code="JavadocHelper.class" width=0 height=0> -->
+	</body>
+</html>
